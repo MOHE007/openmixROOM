@@ -1,83 +1,84 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <juce_graphics/juce_graphics.h>
 #include "PluginProcessor.h"
+#include "ui/FrequencyResponseGraph.h"
 
 // ==============================================================================
-// OpenMixRoomAudioProcessorEditor — Phase 2 GUI with Crossfeed controls.
-//
-// Layout (700×450):
-//   ┌─────────────────────────────────────────────────────────────┐
-//   │  OpenMix Room                              v0.2.0            │
-//   │  Virtual Monitoring — Phase 2: Crossfeed                   │
-//   ├──────┬──────────────┬──────────────────────────────────────┤
-//   │ Mix  │ Crossfeed    │                                       │
-//   │ 100% │   50%        │       Signal Path Diagram             │
-//   │      │              │                                       │
-//   │      │ [Bauer  ▼]  │   Input ──► [Crossfeed] ──► Output   │
-//   │      │ 700 Hz       │                                       │
-//   ├──────┴──────────────┴──────────────────────────────────────┤
-//   │  Sample Rate: 48000 Hz | Buffer: 512 | SOFA: loaded        │
-//   └─────────────────────────────────────────────────────────────┘
+// Waves Nx–inspired UI: dark radial gradient background, central FR graph
+// as the hero element, orange accent (#e8913a), slim parameter controls.
 // ==============================================================================
-class OpenMixRoomAudioProcessorEditor : public juce::AudioProcessorEditor,
-                                         public juce::Timer
+class OpenMixRoomAudioProcessorEditor final
+    : public juce::AudioProcessorEditor
+    , public juce::Timer
 {
 public:
-    explicit OpenMixRoomAudioProcessorEditor (OpenMixRoomAudioProcessor& processor);
+    explicit OpenMixRoomAudioProcessorEditor(OpenMixRoomAudioProcessor&);
     ~OpenMixRoomAudioProcessorEditor() override = default;
 
-    void paint (juce::Graphics& g) override;
+    void paint(juce::Graphics&) override;
     void resized() override;
     void timerCallback() override;
 
 private:
     OpenMixRoomAudioProcessor& audioProcessor;
 
-    // --- widgets ---
-    juce::Label   titleLabel;
-    juce::Label   versionLabel;
-    juce::Label   statusLabel;
+    static constexpr int windowW = 820;
+    static constexpr int windowH = 530;
 
-    // Mix section
-    juce::Label   mixLabel;
-    juce::Slider  mixSlider;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> mixAttachment;
+    // ---- Sections ----
+    juce::Rectangle<int> headerRect;
+    juce::Rectangle<int> graphRect;
+    juce::Rectangle<int> leftPanelRect;
+    juce::Rectangle<int> rightPanelRect;
+    juce::Rectangle<int> statusRect;
 
-    // Crossfeed section
-    juce::Label   crossfeedLabel;
-    juce::Slider  crossfeedSlider;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> crossfeedAttachment;
-
-    juce::Label   cutoffLabel;
-    juce::Slider  cutoffSlider;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> cutoffAttachment;
-
-    juce::Label   algorithmLabel;
-    juce::ComboBox algorithmCombo;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> algorithmAttachment;
-
-    // Bypass toggle
+    // ---- Header ----
     juce::TextButton bypassButton;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAttachment;
+    juce::Label      titleLabel;
 
-    // Room section
-    juce::Label   roomLabel;
-    juce::Label   roomTypeLabel;
+    // ---- FR Graph ----
+    FrequencyResponseGraph frGraph;
+
+    // ---- Left: Calibration ----
+    juce::Label    calSectionLabel;
+    juce::ComboBox calProfileCombo;
+    juce::TextButton calToggle;
+    juce::Label    calGainLabel;
+    juce::Slider   calGainSlider;
+
+    // ---- Right: Room + Crossfeed ----
+    juce::Label    vmSectionLabel;
     juce::ComboBox roomTypeCombo;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> roomTypeAttachment;
+    juce::Label    roomMixLabel;
+    juce::Slider   roomMixSlider;
+    juce::Label    crossfeedLabel;
+    juce::Slider   crossfeedSlider;
+    juce::Label    cutoffLabel;
+    juce::Slider   cutoffSlider;
+    juce::ComboBox algorithmCombo;
+    juce::Label    mixLabel;
+    juce::Slider   mixSlider;
 
-    juce::Label   roomMixLabel;
-    juce::Slider  roomMixSlider;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> roomMixAttachment;
+    // ---- Status bar ----
+    juce::Label statusLabel;
 
-    // APVTS for parameter attachments
+    // ---- APVTS ----
     juce::AudioProcessorValueTreeState apvts;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassA;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> calGainA;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> mixA;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> xfA;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> cutA;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> roomMixA;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> calProfA;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> roomTypeA;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> algA;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> calEnA;
 
-    // Layout constants
-    static constexpr int statusBarHeight = 28;
-    static constexpr int titleAreaHeight = 75;
-    static constexpr int sliderAreaWidth = 140;
+    void styleSlider(juce::Slider& s, juce::Colour thumb, float v, float lo, float hi, float st, const juce::String& sfx);
+    void styleCombo(juce::ComboBox& cb, juce::Colour accent);
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (OpenMixRoomAudioProcessorEditor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OpenMixRoomAudioProcessorEditor)
 };

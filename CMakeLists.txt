@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(OpenMixRoom VERSION 0.2.0 LANGUAGES C CXX)
+project(OpenMixRoom VERSION 0.4.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -49,6 +49,8 @@ target_sources("OpenMixRoom" PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/SofaLoader.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/CrossfeedProcessor.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/RoomProcessor.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/HeadphoneCalibration.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/FrequencyResponseGraph.cpp"
 )
 target_compile_definitions("OpenMixRoom" PRIVATE
     JUCE_IGNORE_VST3_MISMATCHED_PARAMETER_ID_WARNING=1

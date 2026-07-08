@@ -4,86 +4,81 @@
 #include "dsp/SofaLoader.h"
 #include "dsp/CrossfeedProcessor.h"
 #include "dsp/RoomProcessor.h"
+#include "dsp/HeadphoneCalibration.h"
 
 // ==============================================================================
-// OpenMixRoomAudioProcessor — core DSP processor for the OpenMix Room plugin.
+// OpenMixRoomAudioProcessor — virtual monitoring for headphones.
 //
-// Phase 2: HRTF loading + Crossfeed + dry/wet mix.
+// Signal chain (v0.4):
+//   Input → Headphone Cal EQ → Crossfeed → Room IR → Output
+//
+// Phase 4: Headphone Lab-inspired UI + headphone frequency response calibration.
 // ==============================================================================
-class OpenMixRoomAudioProcessor : public juce::AudioProcessor
+class OpenMixRoomAudioProcessor : public juce::AudioProcessor,
+                                       private juce::AudioProcessorParameter::Listener
 {
 public:
-    // --------------------------------------------------------------------------
     OpenMixRoomAudioProcessor();
     ~OpenMixRoomAudioProcessor() override = default;
 
-    // --------------------------------------------------------------------------
     // AudioProcessor overrides
-    // --------------------------------------------------------------------------
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override;
-
     void processBlock (juce::AudioBuffer<float>& buffer,
                        juce::MidiBuffer& midiMessages) override;
-
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
 
-    // Program management (single program for Phase 1)
     int    getNumPrograms() override                     { return 1; }
     int    getCurrentProgram() override                  { return 0; }
-    void   setCurrentProgram (int /*index*/) override    {}
-    const juce::String getProgramName (int /*index*/) override { return "Default"; }
-    void   changeProgramName (int /*index*/, const juce::String& /*newName*/) override {}
+    void   setCurrentProgram (int) override              {}
+    const juce::String getProgramName (int) override     { return "Default"; }
+    void   changeProgramName (int, const juce::String&) override {}
 
-    // MIDI — not used
-    bool acceptsMidi() const override    { return false; }
-    bool producesMidi() const override   { return false; }
-    bool isMidiEffect() const override   { return false; }
+    bool   acceptsMidi() const override    { return false; }
+    bool   producesMidi() const override   { return false; }
+    bool   isMidiEffect() const override   { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
 
-    // Plugin name
     const juce::String getName() const override { return "OpenMix Room"; }
 
-    // State persistence
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
-    // --------------------------------------------------------------------------
-    // Public getters (used by the editor to display live info)
-    // --------------------------------------------------------------------------
+    // Runtime info for editor
     double getCurrentSampleRate() const noexcept { return currentSampleRate; }
     int    getCurrentBlockSize()   const noexcept { return currentBlockSize; }
-
-    // DSP accessors (for editor)
     const SofaLoader& getSofaLoader() const noexcept { return sofaLoader; }
 
+    // DSP accessors
+    const HeadphoneCalibration& getHeadphoneCal() const noexcept { return headphoneCal; }
+
 private:
-    // --------------------------------------------------------------------------
+    // AudioProcessorParameter::Listener — syncs DSP state on parameter changes
+    void parameterValueChanged(int parameterIndex, float newValue) override;
+    void parameterGestureChanged(int parameterIndex, bool gestureIsStarting) override {}
     // Parameters
-    // --------------------------------------------------------------------------
-    juce::AudioParameterFloat* mixParam    = nullptr;  // 0..100 %, default 100 %
-    juce::AudioParameterFloat* crossfeedParam = nullptr; // 0..100 %, default 50 %
-    juce::AudioParameterFloat* cutoffParam  = nullptr;  // 100..2000 Hz, default 700
-    juce::AudioParameterChoice* algorithmParam = nullptr; // Bauer / Meier / Chu Moy / HRTF
-    juce::AudioParameterBool*  bypassParam  = nullptr;  // true = bypass all processing
-    juce::AudioParameterFloat* roomMixParam  = nullptr;  // 0..100 %, default 30 %
-    juce::AudioParameterChoice* roomTypeParam = nullptr;  // Small / Medium / Large
+    juce::AudioParameterFloat*  mixParam           = nullptr;
+    juce::AudioParameterFloat*  crossfeedParam     = nullptr;
+    juce::AudioParameterFloat*  cutoffParam        = nullptr;
+    juce::AudioParameterChoice* algorithmParam     = nullptr;
+    juce::AudioParameterBool*   bypassParam        = nullptr;
+    juce::AudioParameterFloat*  roomMixParam        = nullptr;
+    juce::AudioParameterChoice* roomTypeParam       = nullptr;
+    juce::AudioParameterChoice* calProfileParam     = nullptr;  // Headphone model
+    juce::AudioParameterBool*   calEnabledParam     = nullptr;  // Calibration on/off
+    juce::AudioParameterFloat*  calGainParam        = nullptr;  // Calibration strength
 
-    // --------------------------------------------------------------------------
     // DSP modules
-    // --------------------------------------------------------------------------
-    SofaLoader         sofaLoader;
-    CrossfeedProcessor crossfeed;
-    RoomProcessor       room;
+    SofaLoader            sofaLoader;
+    HeadphoneCalibration  headphoneCal;
+    CrossfeedProcessor    crossfeed;
+    RoomProcessor         room;
 
-    // --------------------------------------------------------------------------
     // Runtime state
-    // --------------------------------------------------------------------------
     double currentSampleRate = 44100.0;
     int    currentBlockSize   = 512;
 
-    // Internal helper
     juce::String getDefaultSofaPath() const;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (OpenMixRoomAudioProcessor)
