@@ -57,6 +57,10 @@ private:
     juce::ComboBox algorithmCombo;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> algorithmAttachment;
 
+    // Bypass toggle
+    juce::TextButton bypassButton;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAttachment;
+
     // APVTS for parameter attachments
     juce::AudioProcessorValueTreeState apvts;
 

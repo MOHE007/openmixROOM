@@ -16,7 +16,8 @@ OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor (
                  std::make_unique<juce::AudioParameterFloat> ("cutoff", "Cutoff",
                      juce::NormalisableRange<float> (100.0f, 2000.0f, 1.0f), 700.0f),
                  std::make_unique<juce::AudioParameterChoice> ("algorithm", "Algorithm",
-                     juce::StringArray { "Bauer", "Meier", "Chu Moy", "HRTF" }, 0)
+                     juce::StringArray { "Bauer", "Meier", "Chu Moy", "HRTF" }, 0),
+                 std::make_unique<juce::AudioParameterBool> ("bypass", "Bypass", false),
              })
 {
     setSize (700, 450);
@@ -121,6 +122,25 @@ OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor (
         apvts, "cutoff", cutoffSlider));
 
     // --------------------------------------------------------------------------
+    // Bypass button
+    // --------------------------------------------------------------------------
+    bypassButton.setButtonText ("Bypass");
+    bypassButton.setClickingTogglesState (true);
+    bypassButton.setColour (juce::TextButton::buttonOnColourId, juce::Colour (180, 60, 50));
+    bypassButton.setColour (juce::TextButton::buttonColourId, juce::Colour (50, 50, 55));
+    bypassButton.setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+    bypassButton.setColour (juce::TextButton::textColourOffId, juce::Colour (180, 180, 185));
+    bypassButton.onStateChange = [this]
+    {
+        auto on = bypassButton.getToggleState();
+        bypassButton.setButtonText (on ? "Bypass (ON)" : "Active");
+    };
+    addAndMakeVisible (bypassButton);
+
+    bypassAttachment.reset (new juce::AudioProcessorValueTreeState::ButtonAttachment (
+        apvts, "bypass", bypassButton));
+
+    // --------------------------------------------------------------------------
     // Status bar
     // --------------------------------------------------------------------------
     statusLabel.setFont (juce::Font (11.0f));
@@ -220,7 +240,8 @@ void OpenMixRoomAudioProcessorEditor::resized()
     algorithmLabel.setBounds (xfCol.removeFromTop (18));
     algorithmCombo.setBounds (xfCol.removeFromTop (24));
     cutoffLabel.setBounds (xfCol.removeFromTop (18));
-    cutoffSlider.setBounds (xfCol);
+    cutoffSlider.setBounds (xfCol.removeFromTop (xfCol.getHeight() / 2));
+    bypassButton.setBounds (xfCol.removeFromTop (26).reduced (4, 2));
 }
 
 // ==============================================================================

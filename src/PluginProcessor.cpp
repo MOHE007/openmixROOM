@@ -67,6 +67,11 @@ OpenMixRoomAudioProcessor::OpenMixRoomAudioProcessor()
     juce::StringArray algorithms = { "Bauer", "Meier", "Chu Moy", "HRTF" };
     addParameter (algorithmParam = new juce::AudioParameterChoice (
         "algorithm", "Algorithm", algorithms, 0));
+
+    // Bypass toggle
+    addParameter (bypassParam = new juce::AudioParameterBool (
+        "bypass", "Bypass", false));
+
 }
 
 // ==============================================================================
@@ -125,6 +130,10 @@ void OpenMixRoomAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         return;
     }
 
+    // Bypass — pass audio through unmodified
+    if (bypassParam->get())
+        return;
+
     const float mixValue       = mixParam->get() / 100.0f;
     const float crossfeedValue = crossfeedParam->get() / 100.0f;
     const float cutoffHz       = cutoffParam->get();
@@ -179,6 +188,7 @@ void OpenMixRoomAudioProcessor::getStateInformation (juce::MemoryBlock& destData
     xml->setAttribute ("crossfeed", crossfeedParam->get());
     xml->setAttribute ("cutoff",    cutoffParam->get());
     xml->setAttribute ("algorithm", algorithmParam->getIndex());
+    xml->setAttribute ("bypass",   bypassParam->get());
     copyXmlToBinary (*xml, destData);
 }
 
@@ -191,6 +201,7 @@ void OpenMixRoomAudioProcessor::setStateInformation (const void* data, int sizeI
         *crossfeedParam = static_cast<float> (xml->getDoubleAttribute ("crossfeed", 50.0));
         *cutoffParam    = static_cast<float> (xml->getDoubleAttribute ("cutoff", 700.0));
         *algorithmParam = xml->getIntAttribute ("algorithm", 0);
+        *bypassParam   = xml->getBoolAttribute ("bypass", false);
     }
 }
 

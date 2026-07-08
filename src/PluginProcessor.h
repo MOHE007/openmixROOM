@@ -65,6 +65,7 @@ private:
     juce::AudioParameterFloat* crossfeedParam = nullptr; // 0..100 %, default 50 %
     juce::AudioParameterFloat* cutoffParam  = nullptr;  // 100..2000 Hz, default 700
     juce::AudioParameterChoice* algorithmParam = nullptr; // Bauer / Meier / Chu Moy / HRTF
+    juce::AudioParameterBool*  bypassParam  = nullptr;  // true = bypass all processing
 
     // --------------------------------------------------------------------------
     // DSP modules
