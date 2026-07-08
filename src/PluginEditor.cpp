@@ -18,6 +18,10 @@ OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor (
                  std::make_unique<juce::AudioParameterChoice> ("algorithm", "Algorithm",
                      juce::StringArray { "Bauer", "Meier", "Chu Moy", "HRTF" }, 0),
                  std::make_unique<juce::AudioParameterBool> ("bypass", "Bypass", false),
+                 std::make_unique<juce::AudioParameterFloat> ("roomMix", "Room Mix",
+                     juce::NormalisableRange<float> (0.0f, 100.0f, 1.0f), 30.0f),
+                 std::make_unique<juce::AudioParameterChoice> ("roomType", "Room Type",
+                     juce::StringArray { "Small", "Medium", "Large" }, 1),
              })
 {
     setSize (700, 450);
@@ -34,7 +38,7 @@ OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor (
     // --------------------------------------------------------------------------
     // Version label
     // --------------------------------------------------------------------------
-    versionLabel.setText ("v0.2.0 — Phase 2: Crossfeed",
+    versionLabel.setText ("v0.3.0 — Phase 3: Room IR",
                           juce::dontSendNotification);
     versionLabel.setFont (juce::Font (11.0f));
     versionLabel.setColour (juce::Label::textColourId, juce::Colour (150, 150, 155));
@@ -141,6 +145,51 @@ OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor (
         apvts, "bypass", bypassButton));
 
     // --------------------------------------------------------------------------
+    // Room section label
+    // --------------------------------------------------------------------------
+    roomLabel.setText ("Room IR", juce::dontSendNotification);
+    roomLabel.setFont (juce::Font (12.0f, juce::Font::bold));
+    roomLabel.setColour (juce::Label::textColourId, juce::Colour (200, 180, 140));
+    roomLabel.setJustificationType (juce::Justification::centred);
+    addAndMakeVisible (roomLabel);
+
+    // Room type combo
+    roomTypeLabel.setText ("Room", juce::dontSendNotification);
+    roomTypeLabel.setFont (juce::Font (11.0f, juce::Font::bold));
+    roomTypeLabel.setColour (juce::Label::textColourId, juce::Colour (160, 160, 165));
+    roomTypeLabel.setJustificationType (juce::Justification::centred);
+    addAndMakeVisible (roomTypeLabel);
+
+    roomTypeCombo.addItemList ({ "Small", "Medium", "Large" }, 1);
+    roomTypeCombo.setSelectedId (2); // Medium default
+    roomTypeCombo.setColour (juce::ComboBox::backgroundColourId, juce::Colour (40, 40, 45));
+    roomTypeCombo.setColour (juce::ComboBox::textColourId, juce::Colours::whitesmoke);
+    roomTypeCombo.setColour (juce::ComboBox::outlineColourId, juce::Colour (60, 60, 65));
+    addAndMakeVisible (roomTypeCombo);
+
+    roomTypeAttachment.reset (new juce::AudioProcessorValueTreeState::ComboBoxAttachment (
+        apvts, "roomType", roomTypeCombo));
+
+    // Room mix slider
+    roomMixLabel.setText ("Mix", juce::dontSendNotification);
+    roomMixLabel.setFont (juce::Font (11.0f, juce::Font::bold));
+    roomMixLabel.setColour (juce::Label::textColourId, juce::Colour (160, 160, 165));
+    roomMixLabel.setJustificationType (juce::Justification::centred);
+    addAndMakeVisible (roomMixLabel);
+
+    roomMixSlider.setSliderStyle (juce::Slider::LinearVertical);
+    roomMixSlider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 50, 20);
+    roomMixSlider.setRange (0.0, 100.0, 1.0);
+    roomMixSlider.setValue (30.0);
+    roomMixSlider.setTextValueSuffix ("%");
+    roomMixSlider.setColour (juce::Slider::thumbColourId, juce::Colour (200, 180, 140));
+    roomMixSlider.setColour (juce::Slider::trackColourId, juce::Colour (60, 60, 65));
+    addAndMakeVisible (roomMixSlider);
+
+    roomMixAttachment.reset (new juce::AudioProcessorValueTreeState::SliderAttachment (
+        apvts, "roomMix", roomMixSlider));
+
+    // --------------------------------------------------------------------------
     // Status bar
     // --------------------------------------------------------------------------
     statusLabel.setFont (juce::Font (11.0f));
@@ -166,13 +215,13 @@ void OpenMixRoomAudioProcessorEditor::paint (juce::Graphics& g)
     const auto diagramArea = bounds
         .withTrimmedTop (titleAreaHeight)
         .withTrimmedBottom (statusBarHeight)
-        .withTrimmedLeft  (sliderAreaWidth * 2);
+        .withTrimmedLeft  (sliderAreaWidth * 3);
 
-    const int boxWidth  = 120;
-    const int boxHeight = 45;
-    const int arrowGap  = 40;
+    const int boxWidth  = 90;
+    const int boxHeight = 40;
+    const int arrowGap  = 28;
     const int centreY   = diagramArea.getCentreY();
-    const int totalW    = boxWidth * 3 + arrowGap * 2;
+    const int totalW    = boxWidth * 4 + arrowGap * 3;
     const int startX    = diagramArea.getCentreX() - totalW / 2;
 
     struct Box { juce::Rectangle<int> r; juce::String t; juce::Colour c; };
@@ -182,6 +231,8 @@ void OpenMixRoomAudioProcessorEditor::paint (juce::Graphics& g)
         { { startX + boxWidth + arrowGap, centreY - boxHeight / 2, boxWidth, boxHeight },
           "Crossfeed", juce::Colour (60, 140, 100) },
         { { startX + (boxWidth + arrowGap) * 2, centreY - boxHeight / 2, boxWidth, boxHeight },
+          "Room IR", juce::Colour (200, 170, 100) },
+        { { startX + (boxWidth + arrowGap) * 3, centreY - boxHeight / 2, boxWidth, boxHeight },
           "Output", juce::Colour (140, 80, 50) }
     };
 
@@ -192,19 +243,19 @@ void OpenMixRoomAudioProcessorEditor::paint (juce::Graphics& g)
         g.setColour (b.c.withAlpha (0.7f));
         g.drawRoundedRectangle (b.r.toFloat(), 8.0f, 1.5f);
         g.setColour (juce::Colours::whitesmoke);
-        g.setFont (juce::Font (14.0f, juce::Font::bold));
+        g.setFont (juce::Font (13.0f, juce::Font::bold));
         g.drawText (b.t, b.r, juce::Justification::centred, false);
     }
 
     // Arrows
-    for (int i = 0; i < 2; ++i)
+    for (int i = 0; i < 3; ++i)
     {
         int x1 = startX + (boxWidth + arrowGap) * i + boxWidth;
         int x2 = x1 + arrowGap;
         juce::Line<float> line (static_cast<float>(x1), static_cast<float>(centreY),
                                  static_cast<float>(x2), static_cast<float>(centreY));
         g.setColour (juce::Colour (180, 180, 190));
-        g.drawArrow (line, 6.0f, 9.0f, 9.0f);
+        g.drawArrow (line, 5.0f, 7.0f, 7.0f);
     }
 
     // Bottom separator
@@ -242,6 +293,14 @@ void OpenMixRoomAudioProcessorEditor::resized()
     cutoffLabel.setBounds (xfCol.removeFromTop (18));
     cutoffSlider.setBounds (xfCol.removeFromTop (xfCol.getHeight() / 2));
     bypassButton.setBounds (xfCol.removeFromTop (26).reduced (4, 2));
+
+    // Room column
+    auto roomCol = bounds.removeFromLeft (sliderAreaWidth).reduced (10, 15);
+    roomLabel.setBounds (roomCol.removeFromTop (18));
+    roomTypeLabel.setBounds (roomCol.removeFromTop (18));
+    roomTypeCombo.setBounds (roomCol.removeFromTop (24));
+    roomMixLabel.setBounds (roomCol.removeFromTop (18));
+    roomMixSlider.setBounds (roomCol);
 }
 
 // ==============================================================================

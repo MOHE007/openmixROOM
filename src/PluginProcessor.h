@@ -3,6 +3,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "dsp/SofaLoader.h"
 #include "dsp/CrossfeedProcessor.h"
+#include "dsp/RoomProcessor.h"
 
 // ==============================================================================
 // OpenMixRoomAudioProcessor — core DSP processor for the OpenMix Room plugin.
@@ -66,12 +67,15 @@ private:
     juce::AudioParameterFloat* cutoffParam  = nullptr;  // 100..2000 Hz, default 700
     juce::AudioParameterChoice* algorithmParam = nullptr; // Bauer / Meier / Chu Moy / HRTF
     juce::AudioParameterBool*  bypassParam  = nullptr;  // true = bypass all processing
+    juce::AudioParameterFloat* roomMixParam  = nullptr;  // 0..100 %, default 30 %
+    juce::AudioParameterChoice* roomTypeParam = nullptr;  // Small / Medium / Large
 
     // --------------------------------------------------------------------------
     // DSP modules
     // --------------------------------------------------------------------------
     SofaLoader         sofaLoader;
     CrossfeedProcessor crossfeed;
+    RoomProcessor       room;
 
     // --------------------------------------------------------------------------
     // Runtime state

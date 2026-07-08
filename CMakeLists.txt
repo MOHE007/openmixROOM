@@ -37,6 +37,9 @@ juce_add_plugin("OpenMixRoom"
 
     # Keep VST2 compatibility off
     JUCE_VST3_CAN_REPLACE_VST2 OFF
+
+    # Additional JUCE modules
+    NEEDS_JUCE_DSP ON
 )
 
 # Add source files separately (JUCE 8 requires target_sources, not SOURCES in juce_add_plugin)
@@ -45,6 +48,7 @@ target_sources("OpenMixRoom" PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PluginEditor.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/SofaLoader.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/CrossfeedProcessor.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/RoomProcessor.cpp"
 )
 target_compile_definitions("OpenMixRoom" PRIVATE
     JUCE_IGNORE_VST3_MISMATCHED_PARAMETER_ID_WARNING=1
@@ -56,7 +60,7 @@ target_include_directories("OpenMixRoom" PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libmysofa-source/src/hrtf"
     "${CMAKE_CURRENT_BINARY_DIR}/third_party/libmysofa-source/src"
 )
-target_link_libraries("OpenMixRoom" PRIVATE mysofa-static z)
+target_link_libraries("OpenMixRoom" PRIVATE juce::juce_dsp mysofa-static z)
 
 # Pass SOFA file path as compile definition for development builds
 target_compile_definitions("OpenMixRoom" PRIVATE

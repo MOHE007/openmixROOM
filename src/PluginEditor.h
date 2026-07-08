@@ -61,6 +61,16 @@ private:
     juce::TextButton bypassButton;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAttachment;
 
+    // Room section
+    juce::Label   roomLabel;
+    juce::Label   roomTypeLabel;
+    juce::ComboBox roomTypeCombo;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> roomTypeAttachment;
+
+    juce::Label   roomMixLabel;
+    juce::Slider  roomMixSlider;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> roomMixAttachment;
+
     // APVTS for parameter attachments
     juce::AudioProcessorValueTreeState apvts;
 

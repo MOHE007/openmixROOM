@@ -72,6 +72,21 @@ OpenMixRoomAudioProcessor::OpenMixRoomAudioProcessor()
     addParameter (bypassParam = new juce::AudioParameterBool (
         "bypass", "Bypass", false));
 
+    // Room mix
+    addParameter (roomMixParam = new juce::AudioParameterFloat (
+        "roomMix", "Room Mix",
+        juce::NormalisableRange<float> (0.0f, 100.0f, 1.0f),
+        30.0f,
+        "%",
+        juce::AudioProcessorParameter::genericParameter,
+        [](float value, int) { return juce::String (value, 1) + "%"; },
+        nullptr));
+
+    // Room type
+    juce::StringArray rooms = { "Small", "Medium", "Large" };
+    addParameter (roomTypeParam = new juce::AudioParameterChoice (
+        "roomType", "Room", rooms, 1));
+
 }
 
 // ==============================================================================
@@ -100,6 +115,9 @@ void OpenMixRoomAudioProcessor::prepareToPlay (double sampleRate, int samplesPer
 
     // prepare crossfeed (now sofaLoader is available for HRIR pre-fetch)
     crossfeed.prepare(sampleRate, samplesPerBlock);
+
+    // prepare room convolution engine
+    room.prepare(sampleRate, samplesPerBlock);
 }
 
 // ==============================================================================
@@ -108,6 +126,7 @@ void OpenMixRoomAudioProcessor::prepareToPlay (double sampleRate, int samplesPer
 void OpenMixRoomAudioProcessor::releaseResources()
 {
     crossfeed.reset();
+    room.reset();
     sofaLoader.close();
 }
 
@@ -136,8 +155,10 @@ void OpenMixRoomAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     const float mixValue       = mixParam->get() / 100.0f;
     const float crossfeedValue = crossfeedParam->get() / 100.0f;
+    const float roomMixValue   = roomMixParam->get() / 100.0f;
     const float cutoffHz       = cutoffParam->get();
     const int   algorithm      = algorithmParam->getIndex();
+    const int   roomType       = roomTypeParam->getIndex();
 
     // Fully dry — skip processing
     if (mixValue < 0.005f)
@@ -151,6 +172,12 @@ void OpenMixRoomAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     if (crossfeedValue > 0.01f)
     {
         crossfeed.process(buffer, dryBuffer, crossfeedValue, cutoffHz, algorithm);
+    }
+
+    // Apply room convolution (early reflections + tail)
+    if (roomMixValue > 0.005f)
+    {
+        room.process(buffer, roomMixValue, roomType);
     }
 
     // Dry/wet blend
@@ -188,7 +215,9 @@ void OpenMixRoomAudioProcessor::getStateInformation (juce::MemoryBlock& destData
     xml->setAttribute ("crossfeed", crossfeedParam->get());
     xml->setAttribute ("cutoff",    cutoffParam->get());
     xml->setAttribute ("algorithm", algorithmParam->getIndex());
-    xml->setAttribute ("bypass",   bypassParam->get());
+    xml->setAttribute ("bypass",    bypassParam->get());
+    xml->setAttribute ("roomMix",   roomMixParam->get());
+    xml->setAttribute ("roomType",  roomTypeParam->getIndex());
     copyXmlToBinary (*xml, destData);
 }
 
@@ -201,7 +230,9 @@ void OpenMixRoomAudioProcessor::setStateInformation (const void* data, int sizeI
         *crossfeedParam = static_cast<float> (xml->getDoubleAttribute ("crossfeed", 50.0));
         *cutoffParam    = static_cast<float> (xml->getDoubleAttribute ("cutoff", 700.0));
         *algorithmParam = xml->getIntAttribute ("algorithm", 0);
-        *bypassParam   = xml->getBoolAttribute ("bypass", false);
+        *bypassParam    = xml->getBoolAttribute ("bypass", false);
+        *roomMixParam   = static_cast<float> (xml->getDoubleAttribute ("roomMix", 30.0));
+        *roomTypeParam  = xml->getIntAttribute ("roomType", 1);
     }
 }
 
