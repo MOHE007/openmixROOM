@@ -2,6 +2,30 @@
 #include "PluginEditor.h"
 
 // ==============================================================================
+// getDefaultSofaPath — bundled SOFA file
+// ==============================================================================
+juce::String OpenMixRoomAudioProcessor::getDefaultSofaPath() const
+{
+    // Try Resources directory first (macOS bundle)
+    juce::File bundlePath = juce::File::getSpecialLocation(
+        juce::File::currentApplicationFile);
+    auto resourcesDir = bundlePath.getChildFile("Contents/Resources");
+    auto sofaFile = resourcesDir.getChildFile("MIT_KEMAR_normal_pinna.sofa");
+    if (sofaFile.existsAsFile())
+        return sofaFile.getFullPathName();
+
+    // Fallback: search relative to executable (development builds)
+    // This is replaced by the SOFA_BUNDLE_PATH macro at build time.
+#ifdef SOFA_BUNDLE_PATH
+    juce::File devPath(SOFA_BUNDLE_PATH);
+    if (devPath.existsAsFile())
+        return devPath.getFullPathName();
+#endif
+
+    return {};
+}
+
+// ==============================================================================
 // Constructor — register parameters
 // ==============================================================================
 OpenMixRoomAudioProcessor::OpenMixRoomAudioProcessor()
@@ -9,18 +33,40 @@ OpenMixRoomAudioProcessor::OpenMixRoomAudioProcessor()
             .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
             .withOutput ("Output", juce::AudioChannelSet::stereo(), true))
 {
-    // "Mix" parameter: controls the dry/wet blend (0 % = fully dry, 100 % = full processing).
-    // In Phase 1 processing is a straight pass-through so the knob is cosmetic,
-    // but the logic already respects it: mix < 0.5 % → skip copy entirely.
+    // "Mix" parameter: dry/wet blend (0 % = fully dry, 100 % = full processing)
     addParameter (mixParam = new juce::AudioParameterFloat (
-        "mix",                                    // parameter ID
-        "Mix",                                    // display name
+        "mix", "Mix",
         juce::NormalisableRange<float> (0.0f, 100.0f, 1.0f),
-        100.0f,                                   // default
-        "%",                                      // suffix
+        100.0f,
+        "%",
         juce::AudioProcessorParameter::genericParameter,
         [](float value, int) { return juce::String (value, 1) + "%"; },
         nullptr));
+
+    // Crossfeed amount: 0 = no crossfeed, 100 = max
+    addParameter (crossfeedParam = new juce::AudioParameterFloat (
+        "crossfeed", "Crossfeed",
+        juce::NormalisableRange<float> (0.0f, 100.0f, 1.0f),
+        50.0f,
+        "%",
+        juce::AudioProcessorParameter::genericParameter,
+        [](float value, int) { return juce::String (value, 1) + "%"; },
+        nullptr));
+
+    // Crossfeed low-pass cutoff: 100–2000 Hz
+    addParameter (cutoffParam = new juce::AudioParameterFloat (
+        "cutoff", "Cutoff",
+        juce::NormalisableRange<float> (100.0f, 2000.0f, 1.0f),
+        700.0f,
+        " Hz",
+        juce::AudioProcessorParameter::genericParameter,
+        [](float value, int) { return juce::String (static_cast<int>(value)) + " Hz"; },
+        nullptr));
+
+    // Algorithm selector
+    juce::StringArray algorithms = { "Bauer", "Meier", "Chu Moy", "HRTF" };
+    addParameter (algorithmParam = new juce::AudioParameterChoice (
+        "algorithm", "Algorithm", algorithms, 0));
 }
 
 // ==============================================================================
@@ -30,6 +76,25 @@ void OpenMixRoomAudioProcessor::prepareToPlay (double sampleRate, int samplesPer
 {
     currentSampleRate = sampleRate;
     currentBlockSize  = samplesPerBlock;
+
+    // Load bundled SOFA file for HRTF mode (must precede crossfeed.prepare)
+    juce::String sofaPath = getDefaultSofaPath();
+    if (sofaPath.isNotEmpty())
+    {
+        bool loaded = sofaLoader.load(sofaPath, sampleRate);
+        crossfeed.setSofaLoader(loaded ? &sofaLoader : nullptr);
+
+        juce::Logger::writeToLog("OpenMixRoom: SOFA " + juce::String(loaded ? "loaded" : "not found")
+                                 + " from " + sofaPath);
+    }
+    else
+    {
+        crossfeed.setSofaLoader(nullptr);
+        juce::Logger::writeToLog("OpenMixRoom: No bundled SOFA file found");
+    }
+
+    // prepare crossfeed (now sofaLoader is available for HRIR pre-fetch)
+    crossfeed.prepare(sampleRate, samplesPerBlock);
 }
 
 // ==============================================================================
@@ -37,11 +102,12 @@ void OpenMixRoomAudioProcessor::prepareToPlay (double sampleRate, int samplesPer
 // ==============================================================================
 void OpenMixRoomAudioProcessor::releaseResources()
 {
-    // Nothing to release in Phase 1.
+    crossfeed.reset();
+    sofaLoader.close();
 }
 
 // ==============================================================================
-// processBlock — Phase 1: straight audio pass-through
+// processBlock — Phase 2: Crossfeed with dry/wet mix
 // ==============================================================================
 void OpenMixRoomAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
                                                juce::MidiBuffer& /*midiMessages*/)
@@ -51,7 +117,7 @@ void OpenMixRoomAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const auto totalNumInputChannels  = getTotalNumInputChannels();
     const auto totalNumOutputChannels = getTotalNumOutputChannels();
 
-    // If the bus layout is mismatched, silence the output and bail out.
+    // Bus mismatch → silence extra outputs
     if (totalNumInputChannels != totalNumOutputChannels)
     {
         for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
@@ -59,14 +125,38 @@ void OpenMixRoomAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         return;
     }
 
-    const float mixValue = mixParam->get();
+    const float mixValue       = mixParam->get() / 100.0f;
+    const float crossfeedValue = crossfeedParam->get() / 100.0f;
+    const float cutoffHz       = cutoffParam->get();
+    const int   algorithm      = algorithmParam->getIndex();
 
-    // Fully dry — skip processing entirely.
-    if (mixValue < 0.5f)
+    // Fully dry — skip processing
+    if (mixValue < 0.005f)
         return;
 
-    // Phase 1: straight pass-through — the buffer already contains input audio.
-    // Simply silence any extra output channels that have no matching input.
+    // Save dry buffer for dry/wet blending
+    juce::AudioBuffer<float> dryBuffer;
+    dryBuffer.makeCopyOf(buffer);
+
+    // Apply crossfeed to the wet path (in-place on buffer)
+    if (crossfeedValue > 0.01f)
+    {
+        crossfeed.process(buffer, dryBuffer, crossfeedValue, cutoffHz, algorithm);
+    }
+
+    // Dry/wet blend
+    if (mixValue < 0.995f)
+    {
+        for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
+        {
+            auto* dst = buffer.getWritePointer(ch);
+            auto* src = dryBuffer.getReadPointer(ch);
+            juce::FloatVectorOperations::multiply(dst, mixValue, buffer.getNumSamples());
+            juce::FloatVectorOperations::addWithMultiply(dst, src, 1.0f - mixValue, buffer.getNumSamples());
+        }
+    }
+
+    // Silence extra output channels
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear (i, 0, buffer.getNumSamples());
 }
@@ -85,7 +175,10 @@ juce::AudioProcessorEditor* OpenMixRoomAudioProcessor::createEditor()
 void OpenMixRoomAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     auto xml = std::make_unique<juce::XmlElement> ("OpenMixRoomState");
-    xml->setAttribute ("mix", mixParam->get());
+    xml->setAttribute ("mix",       mixParam->get());
+    xml->setAttribute ("crossfeed", crossfeedParam->get());
+    xml->setAttribute ("cutoff",    cutoffParam->get());
+    xml->setAttribute ("algorithm", algorithmParam->getIndex());
     copyXmlToBinary (*xml, destData);
 }
 
@@ -93,7 +186,12 @@ void OpenMixRoomAudioProcessor::setStateInformation (const void* data, int sizeI
 {
     auto xml = getXmlFromBinary (data, sizeInBytes);
     if (xml != nullptr && xml->hasTagName ("OpenMixRoomState"))
-        *mixParam = static_cast<float> (xml->getDoubleAttribute ("mix", 50.0));
+    {
+        *mixParam       = static_cast<float> (xml->getDoubleAttribute ("mix", 50.0));
+        *crossfeedParam = static_cast<float> (xml->getDoubleAttribute ("crossfeed", 50.0));
+        *cutoffParam    = static_cast<float> (xml->getDoubleAttribute ("cutoff", 700.0));
+        *algorithmParam = xml->getIntAttribute ("algorithm", 0);
+    }
 }
 
 // ==============================================================================

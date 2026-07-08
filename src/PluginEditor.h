@@ -4,20 +4,21 @@
 #include "PluginProcessor.h"
 
 // ==============================================================================
-// OpenMixRoomAudioProcessorEditor — Phase 1 GUI scaffold.
+// OpenMixRoomAudioProcessorEditor — Phase 2 GUI with Crossfeed controls.
 //
 // Layout (700×450):
-//   ┌────────────────────────────────────────────────┐
-//   │  OpenMix Room                       (title)     │
-//   │  v0.1.0 — Phase 1: Audio Pass-through (version) │
-//   ├────────┬───────────────────────────────────────┤
-//   │  Mix   │                                       │
-//   │ slider │      Input ──► [OpenMix DSP] ──► Out  │
-//   │        │            (signal path diagram)       │
-//   │        │                                       │
-//   ├────────┴───────────────────────────────────────┤
-//   │  Sample Rate: -- | Buffer: -- | Latency: 0     │
-//   └────────────────────────────────────────────────┘
+//   ┌─────────────────────────────────────────────────────────────┐
+//   │  OpenMix Room                              v0.2.0            │
+//   │  Virtual Monitoring — Phase 2: Crossfeed                   │
+//   ├──────┬──────────────┬──────────────────────────────────────┤
+//   │ Mix  │ Crossfeed    │                                       │
+//   │ 100% │   50%        │       Signal Path Diagram             │
+//   │      │              │                                       │
+//   │      │ [Bauer  ▼]  │   Input ──► [Crossfeed] ──► Output   │
+//   │      │ 700 Hz       │                                       │
+//   ├──────┴──────────────┴──────────────────────────────────────┤
+//   │  Sample Rate: 48000 Hz | Buffer: 512 | SOFA: loaded        │
+//   └─────────────────────────────────────────────────────────────┘
 // ==============================================================================
 class OpenMixRoomAudioProcessorEditor : public juce::AudioProcessorEditor,
                                          public juce::Timer
@@ -26,7 +27,6 @@ public:
     explicit OpenMixRoomAudioProcessorEditor (OpenMixRoomAudioProcessor& processor);
     ~OpenMixRoomAudioProcessorEditor() override = default;
 
-    // --------------------------------------------------------------------------
     void paint (juce::Graphics& g) override;
     void resized() override;
     void timerCallback() override;
@@ -35,17 +35,34 @@ private:
     OpenMixRoomAudioProcessor& audioProcessor;
 
     // --- widgets ---
-    juce::Label  titleLabel;
-    juce::Label  versionLabel;
-    juce::Label  statusLabel;
-    juce::Slider mixSlider;
+    juce::Label   titleLabel;
+    juce::Label   versionLabel;
+    juce::Label   statusLabel;
 
-    // Parameter attachment for the Mix slider
+    // Mix section
+    juce::Label   mixLabel;
+    juce::Slider  mixSlider;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> mixAttachment;
+
+    // Crossfeed section
+    juce::Label   crossfeedLabel;
+    juce::Slider  crossfeedSlider;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> crossfeedAttachment;
+
+    juce::Label   cutoffLabel;
+    juce::Slider  cutoffSlider;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> cutoffAttachment;
+
+    juce::Label   algorithmLabel;
+    juce::ComboBox algorithmCombo;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> algorithmAttachment;
+
+    // APVTS for parameter attachments
+    juce::AudioProcessorValueTreeState apvts;
 
     // Layout constants
     static constexpr int statusBarHeight = 28;
-    static constexpr int titleAreaHeight = 80;
+    static constexpr int titleAreaHeight = 75;
     static constexpr int sliderAreaWidth = 140;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (OpenMixRoomAudioProcessorEditor)

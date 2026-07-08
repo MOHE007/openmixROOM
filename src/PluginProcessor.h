@@ -1,12 +1,13 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
+#include "dsp/SofaLoader.h"
+#include "dsp/CrossfeedProcessor.h"
 
 // ==============================================================================
 // OpenMixRoomAudioProcessor — core DSP processor for the OpenMix Room plugin.
 //
-// Phase 1: audio pass-through only.  The processBlock simply copies the input
-// buffer to the output buffer.  Real DSP processing will be added in Phase 2+.
+// Phase 2: HRTF loading + Crossfeed + dry/wet mix.
 // ==============================================================================
 class OpenMixRoomAudioProcessor : public juce::AudioProcessor
 {
@@ -53,17 +54,32 @@ public:
     double getCurrentSampleRate() const noexcept { return currentSampleRate; }
     int    getCurrentBlockSize()   const noexcept { return currentBlockSize; }
 
+    // DSP accessors (for editor)
+    const SofaLoader& getSofaLoader() const noexcept { return sofaLoader; }
+
 private:
     // --------------------------------------------------------------------------
     // Parameters
     // --------------------------------------------------------------------------
-    juce::AudioParameterFloat* mixParam = nullptr;   // 0..100 %, default 100 %
+    juce::AudioParameterFloat* mixParam    = nullptr;  // 0..100 %, default 100 %
+    juce::AudioParameterFloat* crossfeedParam = nullptr; // 0..100 %, default 50 %
+    juce::AudioParameterFloat* cutoffParam  = nullptr;  // 100..2000 Hz, default 700
+    juce::AudioParameterChoice* algorithmParam = nullptr; // Bauer / Meier / Chu Moy / HRTF
+
+    // --------------------------------------------------------------------------
+    // DSP modules
+    // --------------------------------------------------------------------------
+    SofaLoader         sofaLoader;
+    CrossfeedProcessor crossfeed;
 
     // --------------------------------------------------------------------------
     // Runtime state
     // --------------------------------------------------------------------------
     double currentSampleRate = 44100.0;
     int    currentBlockSize   = 512;
+
+    // Internal helper
+    juce::String getDefaultSofaPath() const;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (OpenMixRoomAudioProcessor)
 };
