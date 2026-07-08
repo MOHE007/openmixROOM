@@ -1,0 +1,21 @@
+# Build outputs
+build/
+*.vst3/
+*.component/
+*.app/
+*.dSYM/
+
+# IDE
+.idea/
+.vscode/
+*.xcodeproj/
+*.xcworkspace/
+
+# macOS
+.DS_Store
+._*
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
