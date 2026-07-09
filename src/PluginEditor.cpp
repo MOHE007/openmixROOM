@@ -256,6 +256,9 @@ OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor(
     styleSlider(mixSlider, juce::Colour(140, 185, 235), 100.0f, 0.0f, 100.0f, 1.0f, " %");
     addAndMakeVisible(mixSlider);
 
+    // ---- Room Visualizer ----
+    addAndMakeVisible(roomResponseGraph);
+
     // ---- Status bar ----
     statusLabel.setFont(juce::Font(10.0f));
     statusLabel.setColour(juce::Label::textColourId, textLo);
@@ -456,6 +459,14 @@ void OpenMixRoomAudioProcessorEditor::timerCallback()
     // Keep FR graph live — reflects profile / gain changes in real time
     frGraph.recalcMagnitudes();
     frGraph.repaint();
+
+    // Room decay visualization — live RT60 / damp / size
+    auto& roomProc = audioProcessor.getRoomProcessor();
+    roomResponseGraph.setRoomParams(
+        roomProc.getCurrentRt60(),
+        roomProc.getCurrentDampLp(),
+        roomProc.getCurrentSize());
+    roomResponseGraph.repaint();
 }
 
 // ==============================================================================

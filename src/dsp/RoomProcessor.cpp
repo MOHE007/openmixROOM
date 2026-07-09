@@ -53,22 +53,13 @@ void RoomProcessor::prepare(double sr, int blockSize)
     reset();
     recalcDelays();
 
-    // Randomize Hadamard: row/col sign flips break all-ones correlation
-    // while preserving orthogonality (each flip is an orthogonal transform).
-    // This is the Valhalla trick — unitary matrix with no DC amplification.
+    // Standard Hadamard-8 — row 0 all +1 preserves DC/low-frequency coupling
+    // through the feedback path. Randomization was breaking feedback for
+    // correlated signals (real music). Valhalla randomizes modulated delay
+    // tap lengths, not the feedback matrix itself.
     for (int i = 0; i < fdnCount; ++i)
         for (int j = 0; j < fdnCount; ++j)
             randHadamard[i][j] = hadamard[i][j];
-
-    juce::Random rng;
-    for (int i = 0; i < fdnCount; ++i)
-        if (rng.nextBool())
-            for (int j = 0; j < fdnCount; ++j)
-                randHadamard[i][j] *= -1.0f;
-    for (int j = 0; j < fdnCount; ++j)
-        if (rng.nextBool())
-            for (int i = 0; i < fdnCount; ++i)
-                randHadamard[i][j] *= -1.0f;
 }
 
 // ==============================================================================
@@ -104,7 +95,8 @@ void RoomProcessor::recalcDelays()
         int len = static_cast<int>(baseDelays[i] * srScale * currentSize);
         len = juce::jlimit(16, maxDelay, len);
         fdnL.delayLen[i] = len;
-        fdnR.delayLen[i] = len + juce::Random::getSystemRandom().nextInt({1, 23}); // slight L/R decorrelation
+        // L/R decorrelation via fixed prime offset, not per-block random
+        fdnR.delayLen[i] = len + (i * 7 + 3);  // 3, 10, 17, 24, 31, 38, 45, 52
         fdnR.delayLen[i] = juce::jlimit(16, maxDelay, fdnR.delayLen[i]);
     }
 }
@@ -115,6 +107,7 @@ void RoomProcessor::recalcDelays()
 void RoomProcessor::updateParameters(int roomType)
 {
     const auto p = presetFor(roomType);
+    const bool sizeChanged = (std::abs(targetSize - p.size) > 0.001f);
     targetRt60   = p.rt60;
     targetSize   = p.size;
     targetPreMs  = static_cast<int>(p.preDelayMs);
@@ -124,6 +117,10 @@ void RoomProcessor::updateParameters(int roomType)
     preDelayLen = static_cast<int>(p.preDelayMs * 0.001f * static_cast<float>(sampleRate));
     preDelayLen = juce::jlimit(0, maxPreDelay, preDelayLen);
     preDelayPos = 0;
+
+    // Only rebuild delay line geometry when size actually changes
+    if (sizeChanged)
+        recalcDelays();
 }
 
 // ==============================================================================
@@ -153,7 +150,6 @@ void RoomProcessor::process(juce::AudioBuffer<float>& buffer,
     roomType = juce::jlimit(0, RoomType::Count - 1, roomType);
 
     updateParameters(roomType);
-    recalcDelays();
 
     auto* L  = buffer.getWritePointer(0);
     auto* R  = buffer.getWritePointer(1);
@@ -221,9 +217,9 @@ void RoomProcessor::process(juce::AudioBuffer<float>& buffer,
             float valL = fdnL.delayLine[k][wpL];
             float valR = fdnR.delayLine[k][wpR];
 
-            // Nested allpass for density (2 stages)
+            // Nested allpass for density (2 stages, g=0.618 golden ratio)
             {
-                const float apG = 0.5f;
+                const float apG = 0.618f;
                 const float wL = valL + apG * fdnL.apMem1[k];
                 fdnL.apMem1[k] = wL * apG - valL;
                 valL = wL;
@@ -233,7 +229,7 @@ void RoomProcessor::process(juce::AudioBuffer<float>& buffer,
                 valR = wR;
             }
             {
-                const float apG = 0.5f;
+                const float apG = 0.618f;
                 const float wL = valL + apG * fdnL.apMem2[k];
                 fdnL.apMem2[k] = wL * apG - valL;
                 valL = wL;
@@ -273,8 +269,8 @@ void RoomProcessor::process(juce::AudioBuffer<float>& buffer,
             {
                 int wpL2 = fdnL.writePos[k];
                 int wpR2 = fdnR.writePos[k];
-                fdnL.delayLine[k][wpL2] = mixL * feedback + inMono * 0.15f;
-                fdnR.delayLine[k][wpR2] = mixR * feedback + inMono * 0.15f;
+                fdnL.delayLine[k][wpL2] = mixL * feedback + inMono * 0.354f;
+                fdnR.delayLine[k][wpR2] = mixR * feedback + inMono * 0.354f;
             }
 
             // Advance write pointer (ring buffer)
