@@ -70,6 +70,10 @@ OpenMixRoomAudioProcessor::OpenMixRoomAudioProcessor()
     addParameter (roomTypeParam = new juce::AudioParameterChoice (
         "roomType", "Room", juce::StringArray { "Small", "Medium", "Large" }, 1));
 
+    // Room enable (default OFF — user must turn on manually)
+    addParameter (roomEnabledParam = new juce::AudioParameterBool (
+        "roomEnabled", "Room On", false));
+
     // Headphone calibration profile
     juce::StringArray calProfiles;
     for (int i = 0; i < headphoneCal.getProfileCount(); ++i)
@@ -94,6 +98,58 @@ OpenMixRoomAudioProcessor::OpenMixRoomAudioProcessor()
     calListener->enabledParam = calEnabledParam;
     calProfileParam->addListener(calListener.get());
     calEnabledParam->addListener(calListener.get());
+}
+
+// ==============================================================================
+// Atomic calibration setters — syncs parameter tree + DSP in one step
+// ==============================================================================
+void OpenMixRoomAudioProcessor::setCalProfile(int index)
+{
+    // Built-in profiles (0..10) are also stored in the APVTS parameter for DAW save/restore.
+    // Custom profiles (11+) are DSP-only — they won't survive sessions, but that's OK.
+    const int builtInCount = headphoneCal.getBuiltInCount();
+    if (index >= 0 && index < builtInCount)
+        *calProfileParam = index;
+    headphoneCal.setProfile(index);
+}
+
+void OpenMixRoomAudioProcessor::setCalEnabled(bool on)
+{
+    *calEnabledParam = on;
+    headphoneCal.setEnabled(on);
+}
+
+void OpenMixRoomAudioProcessor::setCalGain(float percent)
+{
+    *calGainParam = percent;
+    headphoneCal.setGain(percent / 100.0f);
+}
+
+void OpenMixRoomAudioProcessor::setRoomEnabled(bool on)
+{
+    *roomEnabledParam = on;
+}
+
+void OpenMixRoomAudioProcessor::setRoomMix(float percent)
+{
+    *roomMixParam = percent;
+}
+
+void OpenMixRoomAudioProcessor::setRoomType(int index)
+{
+    *roomTypeParam = index;
+}
+
+juce::Result OpenMixRoomAudioProcessor::importCalProfile(const juce::String& filePath)
+{
+    HeadphoneCalibration::Profile profile;
+    auto result = HeadphoneCalibration::parseAutoEqFile(filePath, profile);
+    if (result.failed())
+        return result;
+
+    int idx = headphoneCal.addCustomProfile(std::move(profile));
+    setCalProfile(idx);
+    return juce::Result::ok();
 }
 
 // ==============================================================================
@@ -173,9 +229,9 @@ void OpenMixRoomAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     if (mixValue < 0.005f)
         return;
 
-    // ---- Update headphone calibration state ----
-    headphoneCal.setProfile(calProfileParam->getIndex());
-    headphoneCal.setEnabled(calEnabledParam->get());
+    // ---- Update headphone calibration state from APVTS ----
+    // CalListener handles profile/enabled changes via parameter callbacks.
+    // Only sync gain here since it changes per-frame from slider.
     headphoneCal.setGain(calGainParam->get() / 100.0f);
 
     // [1] Headphone calibration EQ (in-place)
@@ -189,9 +245,10 @@ void OpenMixRoomAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     if (crossfeedValue > 0.01f)
         crossfeed.process(buffer, dryBuffer, crossfeedValue, cutoffHz, algorithm);
 
-    // [3] Room convolution
-    if (roomMixValue > 0.005f)
-        room.process(buffer, roomMixValue, roomType);
+    // [3] Room convolution (only if enabled)
+    const bool roomEnabled = roomEnabledParam->get();
+    if (roomEnabled && roomMixValue > 0.005f)
+        room.process(buffer, roomMixValue, roomType, true);
 
     // [4] Dry/wet blend
     if (mixValue < 0.995f)
@@ -208,12 +265,16 @@ void OpenMixRoomAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     for (auto i = numIn; i < numOut; ++i)
         buffer.clear(i, 0, buffer.getNumSamples());
 
-    // ---- [5] Soft-clip final output (prevents digital clipping in chain cascade) ----
+    // ---- [5] Soft limit final output (prevents digital clipping in chain cascade) ----
+    // Use x / (1 + |x|) — softer knee than tanh, less harmonic distortion
     for (int ch = 0; ch < numOut; ++ch)
     {
         auto* dst = buffer.getWritePointer(ch);
         for (int i = 0; i < buffer.getNumSamples(); ++i)
-            dst[i] = std::tanh(dst[i]);
+        {
+            const float x = dst[i];
+            dst[i] = x / (1.0f + std::abs(x));
+        }
     }
 }
 
@@ -238,6 +299,7 @@ void OpenMixRoomAudioProcessor::getStateInformation (juce::MemoryBlock& destData
     xml->setAttribute("bypass",      bypassParam->get());
     xml->setAttribute("roomMix",     roomMixParam->get());
     xml->setAttribute("roomType",    roomTypeParam->getIndex());
+    xml->setAttribute("roomEnabled", roomEnabledParam->get());
     xml->setAttribute("calProfile",  calProfileParam->getIndex());
     xml->setAttribute("calEnabled",  calEnabledParam->get());
     xml->setAttribute("calGain",     calGainParam->get());
@@ -256,6 +318,7 @@ void OpenMixRoomAudioProcessor::setStateInformation (const void* data, int sizeI
         *bypassParam    = xml->getBoolAttribute("bypass", false);
         *roomMixParam   = static_cast<float>(xml->getDoubleAttribute("roomMix", 30.0));
         *roomTypeParam  = xml->getIntAttribute("roomType", 1);
+        *roomEnabledParam = xml->getBoolAttribute("roomEnabled", false);
         *calProfileParam= xml->getIntAttribute("calProfile", 0);
         *calEnabledParam= xml->getBoolAttribute("calEnabled", true);
         *calGainParam   = static_cast<float>(xml->getDoubleAttribute("calGain", 100.0));

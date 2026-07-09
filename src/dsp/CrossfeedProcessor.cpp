@@ -14,7 +14,8 @@ void CrossfeedProcessor::prepare(double sr, int blockSize)
     delayLen = juce::jlimit(4, maxDelaySamples,
                             static_cast<int>(sampleRate * 0.0003));
     delayWrite = 0;
-    std::memset(delayRing, 0, sizeof(delayRing));
+    std::memset(delayRingL, 0, sizeof(delayRingL));
+    std::memset(delayRingR, 0, sizeof(delayRingR));
 
     smoothedAmount.reset(sr, 0.015);
     smoothedCutoff.reset(sr, 0.015);
@@ -22,6 +23,9 @@ void CrossfeedProcessor::prepare(double sr, int blockSize)
     smoothedCutoff.setCurrentAndTargetValue(700.0f);
     currentAmount = 0.0f;
     currentCutoff = 700.0f;
+
+    cmZ1L2 = cmZ2L2 = 0.0f;
+    cmZ1R2 = cmZ2R2 = 0.0f;
 
     updateLowPass(currentCutoff);
 
@@ -36,7 +40,11 @@ void CrossfeedProcessor::reset()
 {
     lp = LP2{};
     delayWrite = 0;
-    std::memset(delayRing, 0, sizeof(delayRing));
+    std::memset(delayRingL, 0, sizeof(delayRingL));
+    std::memset(delayRingR, 0, sizeof(delayRingR));
+
+    cmZ1L2 = cmZ2L2 = 0.0f;
+    cmZ1R2 = cmZ2R2 = 0.0f;
 
     smoothedAmount.setCurrentAndTargetValue(0.0f);
     smoothedCutoff.setCurrentAndTargetValue(700.0f);
@@ -136,26 +144,24 @@ void CrossfeedProcessor::processBauer(float* L, float* R, int numSamples,
     float z1L = lp.z1L, z2L = lp.z2L;
     float z1R = lp.z1R, z2R = lp.z2R;
 
-    // Local copy of ring buffer state (avoid member mutation inside loop)
     int   wPos = delayWrite;
     const int dLen = delayLen;
 
     for (int i = 0; i < numSamples; ++i)
     {
-        // --- Ring buffer: write current sample, read delayed sample ---
-        delayRing[wPos] = R[i];
-        const float rDel = delayRing[(wPos - dLen + maxDelaySamples) % maxDelaySamples];
+        // --- R→L crossfeed path ---
+        delayRingR[wPos] = R[i];
+        const float rDel = delayRingR[(wPos - dLen + maxDelaySamples) % maxDelaySamples];
 
-        // 2nd-order LP on delayed contralateral
         const float lpOut = rDel * lp.b0 + z1R;
         z1R = rDel * lp.b1 - lp.a1 * lpOut + z2R;
         z2R = rDel * lp.b2 - lp.a2 * lpOut;
 
         L[i] += crossGain * lpOut;
 
-        // Symmetric: delay L, LP, add to R
-        delayRing[wPos] = L[i];
-        const float lDel = delayRing[(wPos - dLen + maxDelaySamples) % maxDelaySamples];
+        // --- L→R crossfeed path (independent ring buffer) ---
+        delayRingL[wPos] = L[i];
+        const float lDel = delayRingL[(wPos - dLen + maxDelaySamples) % maxDelaySamples];
 
         const float lpOut2 = lDel * lp.b0 + z1L;
         z1L = lDel * lp.b1 - lp.a1 * lpOut2 + z2L;
@@ -231,10 +237,9 @@ void CrossfeedProcessor::processChuMoy(float* L, float* R, int numSamples,
 {
     const float crossGain = amount * 0.45f;
 
-    // Use a second LP state for cascade (4th-order equivalent)
-    // Shared state for the cascade; initialise from lp on first use
-    float z1L2 = 0, z2L2 = 0;
-    float z1R2 = 0, z2R2 = 0;
+    // Cascade stage 2 — persistent across blocks (no per-block reset)
+    float z1L2 = cmZ1L2, z2L2 = cmZ2L2;
+    float z1R2 = cmZ1R2, z2R2 = cmZ2R2;
 
     float z1L1 = lp.z1L, z2L1 = lp.z2L;
     float z1R1 = lp.z1R, z2R1 = lp.z2R;
@@ -244,9 +249,9 @@ void CrossfeedProcessor::processChuMoy(float* L, float* R, int numSamples,
 
     for (int i = 0; i < numSamples; ++i)
     {
-        // --- ITD delay on contralateral signal ---
-        delayRing[wPos] = R[i];
-        const float rDel = delayRing[(wPos - dLen + maxDelaySamples) % maxDelaySamples];
+        // --- R→L crossfeed path ---
+        delayRingR[wPos] = R[i];
+        const float rDel = delayRingR[(wPos - dLen + maxDelaySamples) % maxDelaySamples];
 
         // Cascade stage 1 (2nd-order LP)
         const float s1 = rDel * lp.b0 + z1R1;
@@ -260,9 +265,9 @@ void CrossfeedProcessor::processChuMoy(float* L, float* R, int numSamples,
 
         L[i] += crossGain * s2;
 
-        // Symmetric for R channel
-        delayRing[wPos] = L[i];
-        const float lDel = delayRing[(wPos - dLen + maxDelaySamples) % maxDelaySamples];
+        // --- L→R crossfeed path ---
+        delayRingL[wPos] = L[i];
+        const float lDel = delayRingL[(wPos - dLen + maxDelaySamples) % maxDelaySamples];
 
         const float s1b = lDel * lp.b0 + z1L1;
         z1L1 = lDel * lp.b1 - lp.a1 * s1b + z2L1;
@@ -279,6 +284,8 @@ void CrossfeedProcessor::processChuMoy(float* L, float* R, int numSamples,
 
     lp.z1L = z1L1; lp.z2L = z2L1;
     lp.z1R = z1R1; lp.z2R = z2R1;
+    cmZ1L2 = z1L2; cmZ2L2 = z2L2;
+    cmZ1R2 = z1R2; cmZ2R2 = z2R2;
     delayWrite = wPos;
 }
 

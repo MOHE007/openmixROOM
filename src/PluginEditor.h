@@ -4,6 +4,7 @@
 #include <juce_graphics/juce_graphics.h>
 #include "PluginProcessor.h"
 #include "ui/FrequencyResponseGraph.h"
+#include "ui/RoomResponseGraph.h"
 
 // ==============================================================================
 // Waves Nx–inspired UI: dark radial gradient background, central FR graph
@@ -44,12 +45,14 @@ private:
     // ---- Left: Calibration ----
     juce::Label    calSectionLabel;
     juce::ComboBox calProfileCombo;
+    juce::TextButton importProfileButton;
     juce::TextButton calToggle;
     juce::Label    calGainLabel;
     juce::Slider   calGainSlider;
 
     // ---- Right: Room + Crossfeed ----
     juce::Label    vmSectionLabel;
+    juce::TextButton roomToggle;
     juce::ComboBox roomTypeCombo;
     juce::Label    roomMixLabel;
     juce::Slider   roomMixSlider;
@@ -61,8 +64,15 @@ private:
     juce::Label    mixLabel;
     juce::Slider   mixSlider;
 
+    // ---- Room Visualizer ----
+    RoomResponseGraph roomResponseGraph;
+    juce::Rectangle<int> roomVisRect;
+
     // ---- Status bar ----
     juce::Label statusLabel;
+
+    // ---- File import ----
+    std::unique_ptr<juce::FileChooser> chooser;
 
     // ---- APVTS ----
     juce::AudioProcessorValueTreeState apvts;
@@ -72,13 +82,14 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> xfA;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> cutA;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> roomMixA;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> calProfA;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> roomTypeA;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>   roomEnA;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> algA;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> calEnA;
 
     void styleSlider(juce::Slider& s, juce::Colour thumb, float v, float lo, float hi, float st, const juce::String& sfx);
     void styleCombo(juce::ComboBox& cb, juce::Colour accent);
+    void rebuildCalProfileCombo();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OpenMixRoomAudioProcessorEditor)
 };

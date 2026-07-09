@@ -66,6 +66,7 @@ OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor(
                     juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 30.0f),
                 std::make_unique<juce::AudioParameterChoice>("roomType", "Room Type",
                     juce::StringArray{"Small", "Medium", "Large"}, 1),
+                std::make_unique<juce::AudioParameterBool>("roomEnabled", "Room On", false),
                 std::make_unique<juce::AudioParameterBool>("calEnabled", "HP Cal", true),
                 std::make_unique<juce::AudioParameterFloat>("calGain", "Cal Gain",
                     juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 100.0f),
@@ -120,9 +121,49 @@ OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor(
     calSectionLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(calSectionLabel);
 
-    // ComboBox populated by APVTS attachment — no manual addItem needed
+    // Manual population — APVTS ComboBoxAttachment can fail with processor ref
+    rebuildCalProfileCombo();
+    calProfileCombo.setSelectedId(1);
+    calProfileCombo.onChange = [this]
+    {
+        audioProcessor.setCalProfile(calProfileCombo.getSelectedItemIndex());
+    };
     styleCombo(calProfileCombo, accent);
     addAndMakeVisible(calProfileCombo);
+
+    // Import custom profile button
+    importProfileButton.setButtonText("+");
+    importProfileButton.setColour(juce::TextButton::buttonColourId, accent.withAlpha(0.25f));
+    importProfileButton.setColour(juce::TextButton::textColourOffId, accent);
+    importProfileButton.setTooltip("Import AutoEq ParametricEQ.txt");
+    importProfileButton.onClick = [this]
+    {
+        chooser = std::make_unique<juce::FileChooser>(
+            "Import AutoEq PEQ File...",
+            juce::File::getSpecialLocation(juce::File::userDesktopDirectory),
+            "*.txt");
+        chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                             [this](const juce::FileChooser& fc)
+        {
+            auto result = fc.getResult();
+            if (result == juce::File{}) return;
+
+            auto r = audioProcessor.importCalProfile(result.getFullPathName());
+            if (r.failed())
+            {
+                juce::AlertWindow::showMessageBoxAsync(
+                    juce::MessageBoxIconType::WarningIcon,
+                    "Import Failed",
+                    r.getErrorMessage());
+                return;
+            }
+
+            // Rebuild combo to include the new custom profile
+            rebuildCalProfileCombo();
+            calProfileCombo.setSelectedId(calProfileCombo.getNumItems()); // select last (new)
+        });
+    };
+    addAndMakeVisible(importProfileButton);
 
     calToggle.setButtonText("CAL ON");
     calToggle.setClickingTogglesState(true);
@@ -132,7 +173,9 @@ OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor(
     calToggle.setColour(juce::TextButton::textColourOnId, juce::Colours::black);
     calToggle.setColour(juce::TextButton::textColourOffId, textMid);
     calToggle.onClick = [this] {
-        calToggle.setButtonText(calToggle.getToggleState() ? "CAL ON" : "CAL OFF");
+        bool on = calToggle.getToggleState();
+        calToggle.setButtonText(on ? "CAL ON" : "CAL OFF");
+        audioProcessor.setCalEnabled(on);
     };
     addAndMakeVisible(calToggle);
 
@@ -143,6 +186,9 @@ OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor(
     addAndMakeVisible(calGainLabel);
 
     styleSlider(calGainSlider, accent, 100.0f, 0.0f, 100.0f, 1.0f, " %");
+    calGainSlider.onValueChange = [this] {
+        audioProcessor.setCalGain(static_cast<float>(calGainSlider.getValue()));
+    };
     addAndMakeVisible(calGainSlider);
 
     // ---- Right Panel: VIRTUAL MONITORING ----
@@ -152,9 +198,26 @@ OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor(
     vmSectionLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(vmSectionLabel);
 
+    roomToggle.setButtonText("ROOM OFF");
+    roomToggle.setClickingTogglesState(true);
+    roomToggle.setToggleState(false, juce::dontSendNotification);
+    roomToggle.setColour(juce::TextButton::buttonOnColourId, accentDim.withAlpha(0.85f));
+    roomToggle.setColour(juce::TextButton::buttonColourId, comboBg);
+    roomToggle.setColour(juce::TextButton::textColourOnId, juce::Colours::black);
+    roomToggle.setColour(juce::TextButton::textColourOffId, textMid);
+    roomToggle.onClick = [this] {
+        bool on = roomToggle.getToggleState();
+        roomToggle.setButtonText(on ? "ROOM ON" : "ROOM OFF");
+        audioProcessor.setRoomEnabled(on);
+    };
+    addAndMakeVisible(roomToggle);
+
     roomTypeCombo.addItemList({"Small", "Medium", "Large"}, 1);
     roomTypeCombo.setSelectedId(2);
     styleCombo(roomTypeCombo, accentDim);
+    roomTypeCombo.onChange = [this] {
+        audioProcessor.setRoomType(roomTypeCombo.getSelectedItemIndex());
+    };
     addAndMakeVisible(roomTypeCombo);
 
     roomMixLabel.setText("Room Mix", juce::dontSendNotification);
@@ -162,6 +225,9 @@ OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor(
     roomMixLabel.setColour(juce::Label::textColourId, textLo);
     addAndMakeVisible(roomMixLabel);
     styleSlider(roomMixSlider, accentDim, 30.0f, 0.0f, 100.0f, 1.0f, " %");
+    roomMixSlider.onValueChange = [this] {
+        audioProcessor.setRoomMix(static_cast<float>(roomMixSlider.getValue()));
+    };
     addAndMakeVisible(roomMixSlider);
 
     crossfeedLabel.setText("Crossfeed", juce::dontSendNotification);
@@ -204,8 +270,8 @@ OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor(
     xfA.reset     (new juce::AudioProcessorValueTreeState::SliderAttachment(apvts, "crossfeed", crossfeedSlider));
     cutA.reset    (new juce::AudioProcessorValueTreeState::SliderAttachment(apvts, "cutoff", cutoffSlider));
     roomMixA.reset(new juce::AudioProcessorValueTreeState::SliderAttachment(apvts, "roomMix", roomMixSlider));
-    calProfA.reset(new juce::AudioProcessorValueTreeState::ComboBoxAttachment(apvts, "calProfile", calProfileCombo));
     roomTypeA.reset(new juce::AudioProcessorValueTreeState::ComboBoxAttachment(apvts, "roomType", roomTypeCombo));
+    roomEnA.reset (new juce::AudioProcessorValueTreeState::ButtonAttachment(apvts, "roomEnabled", roomToggle));
     algA.reset    (new juce::AudioProcessorValueTreeState::ComboBoxAttachment(apvts, "algorithm", algorithmCombo));
 
     bypassButton.setToggleState(false, juce::dontSendNotification);
@@ -318,7 +384,9 @@ void OpenMixRoomAudioProcessorEditor::resized()
     auto lp = leftPanelRect.reduced(6, 0);
     calSectionLabel.setBounds(lp.removeFromTop(20));
     lp.removeFromTop(8);
-    calProfileCombo.setBounds(lp.removeFromTop(26));
+    auto comboRow = lp.removeFromTop(26);
+    importProfileButton.setBounds(comboRow.removeFromRight(26));
+    calProfileCombo.setBounds(comboRow);
     lp.removeFromTop(8);
     calToggle.setBounds(lp.removeFromTop(24));
     lp.removeFromTop(12);
@@ -330,6 +398,8 @@ void OpenMixRoomAudioProcessorEditor::resized()
     // ---- RIGHT PANEL ----
     auto rp = rightPanelRect.reduced(6, 0);
     vmSectionLabel.setBounds(rp.removeFromTop(20));
+    rp.removeFromTop(8);
+    roomToggle.setBounds(rp.removeFromTop(24));
     rp.removeFromTop(8);
     roomTypeCombo.setBounds(rp.removeFromTop(26));
     rp.removeFromTop(12);
@@ -356,6 +426,10 @@ void OpenMixRoomAudioProcessorEditor::resized()
     mixLabel.setBounds(rMix.removeFromLeft(56));
     mixSlider.setBounds(rMix);
 
+    // ---- Room Visualizer ----
+    roomVisRect = rp;
+    roomResponseGraph.setBounds(roomVisRect);
+
     // ---- GRAPH occupies remaining center ----
     frGraph.setBounds(graphRect);
 }
@@ -378,4 +452,23 @@ void OpenMixRoomAudioProcessorEditor::timerCallback()
         + sofa + "  |  "
         + cal,
         juce::dontSendNotification);
+
+    // Keep FR graph live — reflects profile / gain changes in real time
+    frGraph.recalcMagnitudes();
+    frGraph.repaint();
+}
+
+// ==============================================================================
+// rebuildCalProfileCombo — repopulate from built-in + custom profiles
+// ==============================================================================
+void OpenMixRoomAudioProcessorEditor::rebuildCalProfileCombo()
+{
+    calProfileCombo.clear();
+    const auto& hc = audioProcessor.getHeadphoneCal();
+    for (int i = 0; i < hc.getProfileCount(); ++i)
+        calProfileCombo.addItem(hc.getProfileName(i), i + 1);
+
+    int cur = hc.getCurrentProfile();
+    if (cur >= 0 && cur < hc.getProfileCount())
+        calProfileCombo.setSelectedId(cur + 1, juce::dontSendNotification);
 }

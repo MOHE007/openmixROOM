@@ -210,7 +210,9 @@ void HeadphoneCalibration::prepare(double sr, int blockSize)
 }
 
 // ==============================================================================
-// process — cascade biquad stages with preamp gain first
+// process — cascade biquad stages with dry/wet blend for gain control.
+// Filters are always built at full strength; gain blends between dry and
+// processed signal to avoid coefficient discontinuities.
 // ==============================================================================
 void HeadphoneCalibration::process(juce::AudioBuffer<float>& buffer)
 {
@@ -220,10 +222,15 @@ void HeadphoneCalibration::process(juce::AudioBuffer<float>& buffer)
     const auto numSamples = buffer.getNumSamples();
     const auto numChannels = buffer.getNumChannels();
 
-    // Apply preamp gain (negative, prevents clipping from EQ boosts)
+    // Save dry signal for blend
+    juce::AudioBuffer<float> dry;
+    if (gain < 0.999f)
+        dry.makeCopyOf(buffer);
+
+    // Apply preamp gain (always at full strength — safety against EQ clipping)
     if (preampGainDB != 0.0f)
     {
-        const float preampLin = juce::Decibels::decibelsToGain(preampGainDB * gain);
+        const float preampLin = juce::Decibels::decibelsToGain(preampGainDB);
         for (int ch = 0; ch < numChannels; ++ch)
         {
             auto* data = buffer.getWritePointer(ch);
@@ -231,11 +238,23 @@ void HeadphoneCalibration::process(juce::AudioBuffer<float>& buffer)
         }
     }
 
-    // Cascade biquad filters
+    // Cascade biquad filters (always at full strength)
     juce::dsp::AudioBlock<float> block(buffer);
     juce::dsp::ProcessContextReplacing<float> ctx(block);
     for (auto& stage : filterStages)
         stage.process(ctx);
+
+    // Dry/wet blend based on gain
+    if (gain < 0.999f)
+    {
+        for (int ch = 0; ch < numChannels; ++ch)
+        {
+            auto* wet = buffer.getWritePointer(ch);
+            auto* dryPtr = dry.getReadPointer(ch);
+            juce::FloatVectorOperations::multiply(wet, gain, numSamples);
+            juce::FloatVectorOperations::addWithMultiply(wet, dryPtr, 1.0f - gain, numSamples);
+        }
+    }
 }
 
 void HeadphoneCalibration::reset()
@@ -245,13 +264,49 @@ void HeadphoneCalibration::reset()
 }
 
 // ==============================================================================
-// Profile switching
+// Profile switching (supports built-in + custom)
 // ==============================================================================
 void HeadphoneCalibration::setProfile(int index)
 {
-    jassert(index >= 0 && index < static_cast<int>(profiles.size()));
+    const int total = static_cast<int>(profiles.size()) + static_cast<int>(customProfiles.size());
+    jassert(index >= 0 && index < total);
     currentProfile = index;
     rebuildFilters();
+}
+
+const HeadphoneCalibration::Profile& HeadphoneCalibration::getProfile(int index) const
+{
+    const int builtIn = static_cast<int>(profiles.size());
+    if (index < builtIn)
+        return profiles[static_cast<size_t>(index)];
+    return customProfiles[static_cast<size_t>(index - builtIn)];
+}
+
+juce::String HeadphoneCalibration::getProfileName(int index) const
+{
+    return getProfile(index).name;
+}
+
+// ==============================================================================
+// Custom profile management
+// ==============================================================================
+int HeadphoneCalibration::addCustomProfile(Profile p)
+{
+    customProfiles.push_back(std::move(p));
+    return static_cast<int>(profiles.size()) + static_cast<int>(customProfiles.size()) - 1;
+}
+
+void HeadphoneCalibration::removeCustomProfile(int index)
+{
+    const int builtIn = static_cast<int>(profiles.size());
+    const int customIdx = index - builtIn;
+    if (customIdx >= 0 && customIdx < static_cast<int>(customProfiles.size()))
+        customProfiles.erase(customProfiles.begin() + customIdx);
+}
+
+void HeadphoneCalibration::clearCustomProfiles()
+{
+    customProfiles.clear();
 }
 
 // ==============================================================================
@@ -262,10 +317,10 @@ void HeadphoneCalibration::rebuildFilters()
     filterStages.clear();
     preampGainDB = 0.0f;
 
-    if (currentProfile < 0 || currentProfile >= static_cast<int>(profiles.size()))
+    if (currentProfile < 0 || currentProfile >= static_cast<int>(profiles.size()) + static_cast<int>(customProfiles.size()))
         return;
 
-    const auto& profile = profiles[static_cast<size_t>(currentProfile)];
+    const auto& profile = getProfile(currentProfile);
     preampGainDB = profile.preampDB;
 
     juce::dsp::ProcessSpec spec;
@@ -277,24 +332,22 @@ void HeadphoneCalibration::rebuildFilters()
 
     for (const auto& band : profile.bands)
     {
-        const float effectiveGain = band.gainDB * gain;
-
         Coeffs::Ptr b;
         switch (band.type)
         {
             case FilterBand::LowShelf:
                 b = Coeffs::makeLowShelf(sampleRate, band.freqHz,
                                          1.0f / std::sqrt(band.Q),
-                                         juce::Decibels::decibelsToGain(effectiveGain));
+                                         juce::Decibels::decibelsToGain(band.gainDB));
                 break;
             case FilterBand::Peak:
                 b = Coeffs::makePeakFilter(sampleRate, band.freqHz, band.Q,
-                                           juce::Decibels::decibelsToGain(effectiveGain));
+                                           juce::Decibels::decibelsToGain(band.gainDB));
                 break;
             case FilterBand::HighShelf:
                 b = Coeffs::makeHighShelf(sampleRate, band.freqHz,
                                           1.0f / std::sqrt(band.Q),
-                                          juce::Decibels::decibelsToGain(effectiveGain));
+                                          juce::Decibels::decibelsToGain(band.gainDB));
                 break;
         }
 
@@ -313,15 +366,14 @@ void HeadphoneCalibration::rebuildFilters()
 // ==============================================================================
 float HeadphoneCalibration::getMagnitudeDB(float freqHz) const
 {
-    if (currentProfile < 0 || currentProfile >= static_cast<int>(profiles.size()))
+    if (currentProfile < 0 || currentProfile >= static_cast<int>(profiles.size()) + static_cast<int>(customProfiles.size()))
         return 0.0f;
 
-    const auto& profile = profiles[static_cast<size_t>(currentProfile)];
-    float totalDB = profile.preampDB * gain;
+    const auto& profile = getProfile(currentProfile);
+    float totalDB = profile.preampDB;
 
     for (const auto& band : profile.bands)
     {
-        const float effectiveGain = band.gainDB * gain;
         const float w    = freqHz / band.freqHz;
         const float w2   = w * w;
 
@@ -331,7 +383,7 @@ float HeadphoneCalibration::getMagnitudeDB(float freqHz) const
         {
             case FilterBand::Peak:
             {
-                const float A     = std::pow(10.0f, effectiveGain / 40.0f);
+                const float A     = std::pow(10.0f, band.gainDB / 40.0f);
                 const float denom = (1.0f - w2) * (1.0f - w2) + w2 / (band.Q * band.Q);
                 if (denom < 1e-10f) break;
                 const float numA   = 1.0f + A * A * w2 / (band.Q * band.Q * denom);
@@ -341,7 +393,7 @@ float HeadphoneCalibration::getMagnitudeDB(float freqHz) const
             }
             case FilterBand::LowShelf:
             {
-                const float A     = std::pow(10.0f, effectiveGain / 40.0f);
+                const float A     = std::pow(10.0f, band.gainDB / 40.0f);
                 const float sqrtA = std::sqrt(A);
                 const float wS    = w * band.Q;
                 const float num   = A * A * w2 + 2.0f * sqrtA * A * wS + 1.0f;
@@ -351,7 +403,7 @@ float HeadphoneCalibration::getMagnitudeDB(float freqHz) const
             }
             case FilterBand::HighShelf:
             {
-                const float A     = std::pow(10.0f, effectiveGain / 40.0f);
+                const float A     = std::pow(10.0f, band.gainDB / 40.0f);
                 const float sqrtA = std::sqrt(A);
                 const float wS    = w * band.Q;
                 const float num   = A * A + 2.0f * sqrtA * A * wS + w2;
@@ -364,5 +416,92 @@ float HeadphoneCalibration::getMagnitudeDB(float freqHz) const
         totalDB += bandDB;
     }
 
-    return totalDB;
+    return totalDB * gain;
+}
+
+// ==============================================================================
+// AutoEq ParametricEQ.txt parser
+// Format:
+//   Preamp: -6.8 dB
+//   Filter 1: ON LS Fc 105 Hz Gain -5.5 dB Q 0.70
+//   Filter 2: ON PK Fc 3684 Hz Gain 6.8 dB Q 2.88
+// ==============================================================================
+juce::Result HeadphoneCalibration::parseAutoEqFile(const juce::String& filePath, Profile& outProfile)
+{
+    juce::File file(filePath);
+    if (!file.existsAsFile())
+        return juce::Result::fail("File not found: " + filePath);
+
+    juce::StringArray lines;
+    file.readLines(lines);
+
+    if (lines.isEmpty())
+        return juce::Result::fail("Empty file");
+
+    outProfile = Profile{};
+    outProfile.name = file.getFileNameWithoutExtension();
+
+    std::vector<FilterBand> bands;
+
+    for (const auto& line : lines)
+    {
+        const auto trimmed = line.trim();
+        if (trimmed.isEmpty() || trimmed.startsWith("#"))
+            continue;
+
+        if (trimmed.startsWithIgnoreCase("Preamp:"))
+        {
+            auto tokens = juce::StringArray::fromTokens(trimmed, " ", "");
+            for (int i = 0; i < tokens.size(); ++i)
+            {
+                if (tokens[i].containsOnly("-0123456789."))
+                {
+                    outProfile.preampDB = tokens[i].getFloatValue();
+                    break;
+                }
+            }
+            continue;
+        }
+
+        if (trimmed.startsWithIgnoreCase("Filter"))
+        {
+            // Parse: "Filter N: ON TYPE Fc FREQ Hz Gain GAIN dB Q QVAL"
+            auto tokens = juce::StringArray::fromTokens(trimmed, " \t", "");
+            FilterBand band;
+
+            bool gotType = false, gotFreq = false, gotGain = false, gotQ = false;
+
+            for (int i = 0; i < tokens.size() - 1; ++i)
+            {
+                if (tokens[i].equalsIgnoreCase("LS")) { band.type = FilterBand::LowShelf; gotType = true; }
+                else if (tokens[i].equalsIgnoreCase("PK")) { band.type = FilterBand::Peak; gotType = true; }
+                else if (tokens[i].equalsIgnoreCase("HS")) { band.type = FilterBand::HighShelf; gotType = true; }
+                else if (tokens[i].equalsIgnoreCase("Fc") || tokens[i].equalsIgnoreCase("Hz") &&
+                         i > 0 && (tokens[i-1].containsOnly("-0123456789.")))
+                {
+                    band.freqHz = tokens[i-1].getFloatValue();
+                    gotFreq = true;
+                }
+                else if (tokens[i].equalsIgnoreCase("Gain"))
+                {
+                    band.gainDB = tokens[i+1].getFloatValue();
+                    gotGain = true;
+                }
+                else if (tokens[i].equalsIgnoreCase("Q"))
+                {
+                    band.Q = tokens[i+1].getFloatValue();
+                    gotQ = true;
+                }
+            }
+
+            if (gotType && gotFreq && gotGain && gotQ)
+                bands.push_back(band);
+        }
+    }
+
+    if (bands.empty())
+        return juce::Result::fail("No filter bands found in file");
+
+    outProfile.bands = std::move(bands);
+    return juce::Result::ok();
 }

@@ -51,6 +51,19 @@ public:
 
     // DSP accessors
     const HeadphoneCalibration& getHeadphoneCal() const noexcept { return headphoneCal; }
+          HeadphoneCalibration& getHeadphoneCal()       noexcept { return headphoneCal; }
+    RoomProcessor& getRoomProcessor() noexcept { return room; }
+
+    // Atomic setters: update both parameter tree and DSP in one call
+    void setCalProfile(int index);
+    void setCalEnabled(bool on);
+    void setCalGain(float percent);
+    void setRoomEnabled(bool on);
+    void setRoomMix(float percent);
+    void setRoomType(int index);
+
+    // Custom profile import
+    juce::Result importCalProfile(const juce::String& filePath);
 
 private:
     // Internal parameter listener — bridges APVTS → DSP without multiple inheritance
@@ -80,6 +93,7 @@ private:
     juce::AudioParameterBool*   bypassParam        = nullptr;
     juce::AudioParameterFloat*  roomMixParam        = nullptr;
     juce::AudioParameterChoice* roomTypeParam       = nullptr;
+    juce::AudioParameterBool*   roomEnabledParam    = nullptr;  // Room bypass (default off)
     juce::AudioParameterChoice* calProfileParam     = nullptr;  // Headphone model
     juce::AudioParameterBool*   calEnabledParam     = nullptr;  // Calibration on/off
     juce::AudioParameterFloat*  calGainParam        = nullptr;  // Calibration strength

@@ -44,15 +44,25 @@ public:
 
     void setProfile(int index);
     int  getCurrentProfile() const { return currentProfile; }
-    int  getProfileCount() const   { return static_cast<int>(profiles.size()); }
+    int  getBuiltInCount()   const { return static_cast<int>(profiles.size()); }
+    int  getProfileCount()   const { return static_cast<int>(profiles.size()) + static_cast<int>(customProfiles.size()); }
 
-    const Profile& getProfile(int index) const { return profiles[index]; }
+    const Profile& getProfile(int index) const;
+    juce::String   getProfileName(int index) const;
+
+    // Custom profile management (user-imported)
+    int  addCustomProfile(Profile p);
+    void removeCustomProfile(int index);
+    void clearCustomProfiles();
+
+    // AutoEq ParametricEQ.txt parser — returns Profile on success
+    static juce::Result parseAutoEqFile(const juce::String& filePath, Profile& outProfile);
 
     // Magnitude response at a given frequency (for UI graphing), returns dB
     float getMagnitudeDB(float freqHz) const;
 
-    // Gain parameter (0..100% = strength of correction)
-    void  setGain(float g) { gain = juce::jlimit(0.0f, 1.0f, g); rebuildFilters(); }
+    // Gain parameter (0..100% = strength of correction, applied as dry/wet blend)
+    void  setGain(float g) { gain = juce::jlimit(0.0f, 1.0f, g); }
     float getGain() const  { return gain; }
 
 private:
@@ -69,6 +79,7 @@ private:
     std::vector<juce::dsp::IIR::Filter<float>> filterStages;
 
     static const std::vector<Profile> profiles;
+    std::vector<Profile> customProfiles;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(HeadphoneCalibration)
 };

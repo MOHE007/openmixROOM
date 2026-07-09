@@ -17,6 +17,7 @@ public:
     ~FrequencyResponseGraph() override = default;
 
     void setCalibration(const HeadphoneCalibration* cal);
+    void recalcMagnitudes();
     void paint(juce::Graphics& g) override;
 
 private:
@@ -26,8 +27,6 @@ private:
     static constexpr int numPoints = 256;
     float freqs[numPoints];
     float magnitudes[numPoints];
-
-    void recalcMagnitudes();
 
     // Helper to convert frequency to horizontal pixel position (log scale)
     float freqToX(float freqHz, float plotWidth) const;

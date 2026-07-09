@@ -51,6 +51,7 @@ target_sources("OpenMixRoom" PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/RoomProcessor.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/HeadphoneCalibration.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/FrequencyResponseGraph.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/RoomResponseGraph.cpp"
 )
 target_compile_definitions("OpenMixRoom" PRIVATE
     JUCE_IGNORE_VST3_MISMATCHED_PARAMETER_ID_WARNING=1

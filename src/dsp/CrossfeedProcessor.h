@@ -67,12 +67,17 @@ private:
     };
     LP2 lp;
 
-    // --- Interaural delay ring buffer (shared by Bauer / Chu Moy) ---
+    // --- Interaural delay ring buffers (dual — L/R independent) ---
     // ITD ≈ 0.3 ms at 30° speaker angle → ~13 samples @ 44.1k
     static constexpr int maxDelaySamples = 64;
-    float delayRing[maxDelaySamples] = {};
+    float delayRingL[maxDelaySamples] = {};
+    float delayRingR[maxDelaySamples] = {};
     int   delayWrite = 0;
     int   delayLen   = 13;            // recalculated in prepare()
+
+    // --- Chu Moy 2nd cascade persistent state (avoids block-boundary reset) ---
+    float cmZ1L2 = 0.0f, cmZ2L2 = 0.0f;
+    float cmZ1R2 = 0.0f, cmZ2R2 = 0.0f;
 
     // --- Smoothed parameters ---
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothedAmount;

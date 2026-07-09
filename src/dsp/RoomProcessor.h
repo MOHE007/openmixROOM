@@ -4,17 +4,19 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 
 // ==============================================================================
-// RoomProcessor — algorithmic room simulation via Image Source Method (ISM).
+// RoomProcessor — FDN (Feedback Delay Network) plate reverb.
 //
-// Replaces hand-tuned early reflection tap tables with physically grounded
-// image-source ray tracing. Computes up to 2nd-order reflections across six
-// surfaces (floor/ceiling + four walls) with frequency-dependent absorption.
+// High-quality algorithmic plate reverb inspired by Valhalla Plate / classic
+// EMT 250 / Lexicon 224:
+//   • 8-delay FDN with Hadamard mixing matrix
+//   • 4-stage allpass diffuser on input for dense early reflections
+//   • 2 nested allpass per FDN channel for density
+//   • Low/high shelf damping in feedback path
+//   • Pre-delay (0–50ms)
+//   • Three presets: Small / Medium / Large
 //
-// • ISM generates reflection delay/amplitude/direction from room geometry
-// • Late reverberation: frequency-dependent decaying filtered noise (FDN tail)
-// • Three presets: Small (3×4×2.5m), Medium (5×7×3m), Large (8×12×4m)
-// • Channel decorrelation: slightly offset virtual receiver positions per ear
-// • Convolution via juce::dsp::Convolution (partitioned overlap-save)
+// Replaces the ISM convolution approach with a smoother, denser plate sound
+// that is immediately audible and musical at any mix level.
 // ==============================================================================
 class RoomProcessor
 {
@@ -31,72 +33,96 @@ public:
     ~RoomProcessor() = default;
 
     void prepare(double sampleRate, int maxBlockSize);
-    void process(juce::AudioBuffer<float>& buffer, float roomMix, int roomType);
+    void process(juce::AudioBuffer<float>& buffer, float roomMix, int roomType, bool enabled);
     void reset();
+
+    float getCurrentRt60()   const noexcept { return currentRt60; }
+    float getCurrentDampLp() const noexcept { return currentDampLp; }
+    float getCurrentSize()   const noexcept { return currentSize; }
 
 private:
     // --------------------------------------------------------------------------
-    // Room geometry definition (meters)
+    // Preset parameters
     // --------------------------------------------------------------------------
-    struct RoomGeometry
+    struct Preset
     {
-        float width, depth, height;              // in meters
-        float wallAbsorption[6];                  // octave-band avg for 6 surfaces (0..1)
-        float listenerX, listenerY, listenerZ;    // listener position
-        float speakerLx, speakerRx;               // virtual speaker X positions (±30°)
-
-        // Absorption coefficient at a specific frequency via 3-band interpolation
-        // (low < 500Hz, mid 500–4kHz, high > 4kHz)
-        float absorptionAt(float freqHz) const;
+        float rt60;          // decay time (seconds)
+        float size;          // size multiplier (0.5–2.0)
+        float preDelayMs;    // pre-delay in ms
+        float lpfHz;         // low-pass damping cutoff (higher = brighter)
+        float hpfHz;         // high-pass damping cutoff
+        float diffusion;     // input allpass diffusion amount (0–1)
     };
 
-    // --------------------------------------------------------------------------
-    // Image source result: delay, gain, and arrival direction for stereo panning
-    // --------------------------------------------------------------------------
-    struct ImageSource
-    {
-        float delaySec;     // arrival delay in seconds
-        float amplitude;    // amplitude after wall reflections
-        float azimuth;      // horizontal arrival angle (radians, 0=front)
-        int   order;        // reflection order
-    };
+    static Preset presetFor(int type);
 
     // --------------------------------------------------------------------------
-    // Generate synthetic stereo room IR using Image Source Method.
+    // Algorithm
     // --------------------------------------------------------------------------
-    void generateISM_IR(int roomType);
-
-    // Compute all image sources for a room geometry (up to maxOrder)
-    static void traceImageSources(const RoomGeometry& room,
-                                   std::vector<ImageSource>& outSources,
-                                   int maxOrder);
-
-    // Bake image sources into an IR buffer (per-ear, uses azimuth for ILD/ITD)
-    static void bakeImageSources(const std::vector<ImageSource>& sources,
-                                  float earOffset, float* dest, int irLength,
-                                  double sr);
-
-    // Generate frequency-dependent filtered noise tail
-    static void bakeFDNTail(float* dest, int startSample, int irLength,
-                             double sr, float rt60, float hfRatio);
+    void updateParameters(int roomType);
 
     // --------------------------------------------------------------------------
-    // Room presets
-    // --------------------------------------------------------------------------
-    static RoomGeometry roomPreset(int type);
-
-    // --------------------------------------------------------------------------
-    // state
+    // State
     // --------------------------------------------------------------------------
     double sampleRate   = 44100.0;
     int    maxBlockSize = 512;
-    int    currentRoom  = -1;
 
-    juce::dsp::Convolution convL;
-    juce::dsp::Convolution convR;
+    // FDN: 8 delay lines with prime-numbered lengths
+    static constexpr int fdnCount = 8;
+    static constexpr int maxDelay = 16384;  // ~371ms @ 44.1k
 
-    juce::AudioBuffer<float> wetBufferL;
-    juce::AudioBuffer<float> wetBufferR;
+    // Buffer per channel (L/R use independent FDNs for stereo decorrelation).
+    // Each of the 8 taps has its own independent delay line to avoid
+    // cross-tap buffer corruption caused by prime-length offsets colliding.
+    struct FDNChannel
+    {
+        float delayLine[fdnCount][maxDelay] = {};
+        int   delayLen[fdnCount];
+        int   writePos[fdnCount];
+
+        // Nested allpass inside each FDN tap (2 stages)
+        float apMem1[fdnCount] = {};
+        float apMem2[fdnCount] = {};
+
+        // Damping filter state
+        float lpMem[fdnCount] = {};
+        float hpMem[fdnCount] = {};
+    };
+
+    FDNChannel fdnL, fdnR;
+
+    // Randomized Hadamard feedback matrix — row/col sign flips break
+    // the all-ones correlation that causes channel-0 amplification
+    float randHadamard[fdnCount][fdnCount] = {};
+
+    // Input allpass diffusers (4 stages, shared by L/R or per channel)
+    static constexpr int apCount = 4;
+    float apMemL[apCount] = {};
+    float apMemR[apCount] = {};
+
+    // Pre-delay
+    static constexpr int maxPreDelay = 2205;  // 50ms @ 44.1k
+    float preDelayL[maxPreDelay] = {};
+    float preDelayR[maxPreDelay] = {};
+    int   preDelayLen = 0;
+    int   preDelayPos = 0;
+
+    // Smoothed parameters
+    float targetRt60   = 1.5f;
+    float targetSize   = 1.0f;
+    float targetDampLp = 8000.0f;
+    float targetDampHp = 200.0f;
+    int   targetPreMs  = 0;
+
+    // Current smoothed values
+    float currentRt60   = 1.5f;
+    float currentSize   = 1.0f;
+    float currentDampLp = 8000.0f;
+    float currentDampHp = 200.0f;
+    int   currentPreMs  = 0;
+
+    void recalcDelays();
+    void smoothParams();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(RoomProcessor)
 };
