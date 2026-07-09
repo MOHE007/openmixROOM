@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="800" height="500">
+  <defs>
+    <radialGradient id="bgGrad" cx="0.5" cy="0.5" r="0.8">
+      <stop offset="0%" stop-color="#1a1a30"/>
+      <stop offset="100%" stop-color="#0a0a18"/>
+    </radialGradient>
+    <linearGradient id="cyanGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2ef8d4"/>
+      <stop offset="100%" stop-color="#00a88a"/>
+    </linearGradient>
+    <linearGradient id="orangeGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ff8c5a"/>
+      <stop offset="100%" stop-color="#e04520"/>
+    </linearGradient>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&amp;display=swap');
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="500" rx="24" fill="url(#bgGrad)"/>
+
+  <!-- ===== ICON MARK (left) ===== -->
+  <g transform="translate(120, 125)">
+    <!-- Glow behind -->
+    <rect x="-12" y="-12" width="274" height="274" rx="40" fill="none" stroke="#2ef8d4" stroke-width="1" opacity="0.1"/>
+
+    <!-- Square frame -->
+    <rect x="0" y="0" width="250" height="250" rx="32" fill="none" stroke="url(#cyanGrad)" stroke-width="4"/>
+
+    <!-- Triangle (Δ = O replacement) -->
+    <polygon points="125,35 35,215 215,215" fill="none" stroke="url(#cyanGrad)" stroke-width="5" stroke-linejoin="round"/>
+
+    <!-- Inner accent lines — speaker cone / room perspective -->
+    <line x1="80" y1="195" x2="80" y2="230" stroke="url(#cyanGrad)" stroke-width="4" stroke-linecap="round" opacity="0.5"/>
+    <line x1="125" y1="195" x2="125" y2="238" stroke="url(#cyanGrad)" stroke-width="4" stroke-linecap="round" opacity="0.7"/>
+    <line x1="170" y1="195" x2="170" y2="230" stroke="url(#cyanGrad)" stroke-width="4" stroke-linecap="round" opacity="0.5"/>
+
+    <!-- Sound wave dot in center of triangle -->
+    <circle cx="125" cy="145" r="6" fill="url(#cyanGrad)" opacity="0.6"/>
+    <circle cx="125" cy="145" r="16" fill="none" stroke="url(#cyanGrad)" stroke-width="1.5" opacity="0.3"/>
+  </g>
+
+  <!-- ===== WORDMARK (right) ===== -->
+  <g transform="translate(440, 150)">
+    <!-- ΔPEN line — geometric, uppercase, monospaced feel -->
+    <g fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+      <!-- Δ (triangle) -->
+      <polygon points="10,55 40,5 70,55"/>
+      <!-- P -->
+      <path d="M80,55 L80,5 M80,5 L112,5 Q130,5 130,22 Q130,39 112,39 L80,39"/>
+      <!-- E -->
+      <path d="M140,55 L140,5 M140,5 L168,5 M140,30 L160,30 M140,55 L168,55"/>
+      <!-- N -->
+      <path d="M178,55 L178,5 L218,55 L218,5"/>
+    </g>
+
+    <!-- "mix" — flowing script, smaller, underneath -->
+    <g transform="translate(15, 70)">
+      <g fill="none" stroke="#2ef8d4" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M0,35 Q8,8 22,14 Q36,20 32,48"/>
+        <path d="M34,12 Q52,6 60,22 Q68,38 60,50"/>
+      </g>
+      <!-- Heart over i -->
+      <path d="M64,2 C64,-6 56,-12 52,-4 C48,-12 40,-6 40,2 C40,12 52,20 52,20 C52,20 64,12 64,2Z" fill="url(#orangeGrad)"/>
+      <path d="M50,12 L50,52" fill="none" stroke="#2ef8d4" stroke-width="3" stroke-linecap="round"/>
+    </g>
+
+    <!-- Subtitle: "Room" + tagline -->
+    <g transform="translate(15, 120)">
+      <text font-family="'Space Mono', monospace" font-size="14" fill="#8888a0" letter-spacing="6">R O O M</text>
+    </g>
+
+    <!-- Tagline -->
+    <g transform="translate(15, 150)">
+      <text font-family="-apple-system, sans-serif" font-size="11" fill="#5c5c78" letter-spacing="3" font-weight="300">VIRTUAL MONITORING</text>
+    </g>
+  </g>
+
+  <!-- Corner accent dot -->
+  <circle cx="760" cy="40" r="4" fill="#2ef8d4" opacity="0.3"/>
+</svg>

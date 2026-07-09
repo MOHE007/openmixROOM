@@ -5,10 +5,14 @@
 #include "PluginProcessor.h"
 #include "ui/FrequencyResponseGraph.h"
 #include "ui/RoomResponseGraph.h"
+#include "ui/NeumorphicLookAndFeel.h"
+#include "ui/LogoComponent.h"
 
 // ==============================================================================
-// Waves Nx–inspired UI: dark radial gradient background, central FR graph
-// as the hero element, orange accent (#e8913a), slim parameter controls.
+// Neumorphic UI — soft, light design with raised/inset card panels.
+// Left panel: headphone calibration + logo. Center: FR graph. Right: room.
+// Parameter sync: all controls use manual onClick/onValueChange callbacks
+// to the processor's setters; no APVTS needed — processor uses raw addParameter().
 // ==============================================================================
 class OpenMixRoomAudioProcessorEditor final
     : public juce::AudioProcessorEditor
@@ -27,6 +31,9 @@ private:
 
     static constexpr int windowW = 820;
     static constexpr int windowH = 530;
+
+    // ---- Neumorphic LookAndFeel ----
+    NeumorphicLookAndFeel neumorphicLF;
 
     // ---- Sections ----
     juce::Rectangle<int> headerRect;
@@ -49,6 +56,9 @@ private:
     juce::TextButton calToggle;
     juce::Label    calGainLabel;
     juce::Slider   calGainSlider;
+
+    // ---- Logo (left panel, below cal controls) ----
+    LogoComponent logoComponent;
 
     // ---- Right: Room + Crossfeed ----
     juce::Label    vmSectionLabel;
@@ -82,25 +92,8 @@ private:
     // ---- File import ----
     std::unique_ptr<juce::FileChooser> chooser;
 
-    // ---- APVTS ----
-    juce::AudioProcessorValueTreeState apvts;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassA;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> calGainA;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> mixA;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> xfA;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> cutA;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> roomMixA;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> roomSizeA;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> preDelayA;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> erLevelA;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> roomDampA;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> roomTypeA;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>   roomEnA;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> algA;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> calEnA;
-
-    void styleSlider(juce::Slider& s, juce::Colour thumb, float v, float lo, float hi, float st, const juce::String& sfx);
-    void styleCombo(juce::ComboBox& cb, juce::Colour accent);
+    void styleSlider(juce::Slider& s, float v, float lo, float hi, float st, const juce::String& sfx);
+    void styleCombo(juce::ComboBox& cb);
     void rebuildCalProfileCombo();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OpenMixRoomAudioProcessorEditor)

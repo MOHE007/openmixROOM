@@ -52,6 +52,8 @@ target_sources("OpenMixRoom" PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src/dsp/HeadphoneCalibration.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/FrequencyResponseGraph.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/RoomResponseGraph.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/NeumorphicLookAndFeel.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/LogoComponent.cpp"
 )
 target_compile_definitions("OpenMixRoom" PRIVATE
     JUCE_IGNORE_VST3_MISMATCHED_PARAMETER_ID_WARNING=1
@@ -68,4 +70,25 @@ target_link_libraries("OpenMixRoom" PRIVATE juce::juce_dsp mysofa-static z)
 # Pass SOFA file path as compile definition for development builds
 target_compile_definitions("OpenMixRoom" PRIVATE
     SOFA_BUNDLE_PATH="${CMAKE_CURRENT_SOURCE_DIR}/share/MIT_KEMAR_normal_pinna.sofa"
+)
+
+# -------------------------------------------------------------------
+# Copy SVG logo into plugin bundle Resources (VST3 + AU)
+# -------------------------------------------------------------------
+add_custom_command(TARGET "OpenMixRoom_VST3" POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_BUNDLE_CONTENT_DIR:OpenMixRoom_VST3>/Resources"
+    COMMAND ${CMAKE_COMMAND} -E copy
+        "${CMAKE_CURRENT_SOURCE_DIR}/share/openmixroom-logo-v3.svg"
+        "$<TARGET_BUNDLE_CONTENT_DIR:OpenMixRoom_VST3>/Resources/openmixroom-logo-v3.svg"
+    COMMENT "Copying SVG logo into VST3 bundle Resources"
+)
+
+add_custom_command(TARGET "OpenMixRoom_AU" POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        "$<TARGET_BUNDLE_CONTENT_DIR:OpenMixRoom_AU>/Resources"
+    COMMAND ${CMAKE_COMMAND} -E copy
+        "${CMAKE_CURRENT_SOURCE_DIR}/share/openmixroom-logo-v3.svg"
+        "$<TARGET_BUNDLE_CONTENT_DIR:OpenMixRoom_AU>/Resources/openmixroom-logo-v3.svg"
+    COMMENT "Copying SVG logo into AU bundle Resources"
 )

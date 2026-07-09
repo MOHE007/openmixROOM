@@ -1,4 +1,5 @@
 #include "FrequencyResponseGraph.h"
+#include "NeumorphicLookAndFeel.h"
 #include <cmath>
 
 FrequencyResponseGraph::FrequencyResponseGraph()
@@ -46,6 +47,8 @@ float FrequencyResponseGraph::freqToX(float freqHz, float plotWidth) const
 
 void FrequencyResponseGraph::paint(juce::Graphics& g)
 {
+    using LF = NeumorphicLookAndFeel;
+
     auto bounds = getLocalBounds().toFloat();
     const float padLeft   = 40.0f;
     const float padRight  = 8.0f;
@@ -57,15 +60,16 @@ void FrequencyResponseGraph::paint(juce::Graphics& g)
     const float plotWidth  = bounds.getWidth()  - padLeft - padRight;
     const float plotHeight = bounds.getHeight() - padTop  - padBottom;
 
-    // Background
-    g.fillAll(juce::Colour(22, 23, 25));
+    // Transparent background — parent draws card
+    g.fillAll(juce::Colours::transparentBlack);
 
-    // Graph area border
-    g.setColour(juce::Colour(45, 46, 50));
-    g.drawRect(plotX, plotY, plotWidth, plotHeight, 1.0f);
+    // Inset graph area
+    auto graphBounds = juce::Rectangle<float>(plotX - 4.0f, plotY - 4.0f,
+                                              plotWidth + 8.0f, plotHeight + 8.0f);
+    LF::drawNeumorphicInset(g, graphBounds, 10.0f);
 
     // ---- Grid lines (horizontal, every 6 dB) ----
-    g.setColour(juce::Colour(40, 41, 45));
+    g.setColour(LF::shadowColor.withAlpha(0.25f));
     for (int db = static_cast<int>(minDB); db <= static_cast<int>(maxDB); db += 6)
     {
         float normY = (static_cast<float>(db) - minDB) / (maxDB - minDB);
@@ -73,20 +77,20 @@ void FrequencyResponseGraph::paint(juce::Graphics& g)
         g.drawHorizontalLine(static_cast<int>(y), plotX, plotX + plotWidth);
 
         // dB labels
-        g.setColour(juce::Colour(100, 101, 105));
+        g.setColour(LF::textDimColor);
         g.setFont(juce::Font(9.0f));
-        g.drawText(juce::String(db), 2.0f, y - 7.0f, 34.0f, 14.0f,
+        g.drawText(juce::String(db), 4.0f, y - 7.0f, 32.0f, 14.0f,
                    juce::Justification::centredRight, false);
-        g.setColour(juce::Colour(40, 41, 45));
+        g.setColour(LF::shadowColor.withAlpha(0.25f));
     }
 
     // Centre 0 dB line
     float zeroY = plotY + plotHeight * (1.0f - (0.0f - minDB) / (maxDB - minDB));
-    g.setColour(juce::Colour(60, 61, 65));
+    g.setColour(LF::textDimColor.withAlpha(0.4f));
     g.drawHorizontalLine(static_cast<int>(std::round(zeroY)), plotX, plotX + plotWidth);
 
-    // ---- Frequency labels (octave markers) ----
-    g.setColour(juce::Colour(100, 101, 105));
+    // ---- Frequency labels ----
+    g.setColour(LF::textDimColor);
     g.setFont(juce::Font(9.0f));
     const float freqMarks[] = { 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000 };
     const juce::String freqLabels[] = { "20", "50", "100", "200", "500", "1k", "2k", "5k", "10k", "20k" };
@@ -101,7 +105,6 @@ void FrequencyResponseGraph::paint(juce::Graphics& g)
                    40, 16, juce::Justification::centred, false);
     }
 
-    // ---- Zero dB reference line (dashed) ----
     if (calibration == nullptr)
         return;
 
@@ -120,29 +123,26 @@ void FrequencyResponseGraph::paint(juce::Graphics& g)
         else       { curvePath.lineTo(x, y); }
     }
 
-    // Draw filled area below curve
+    // Draw filled area below curve — neumorphic accent gradient
     juce::Path fillPath = curvePath;
     fillPath.lineTo(plotX + plotWidth, zeroY);
     fillPath.lineTo(plotX, zeroY);
     fillPath.closeSubPath();
 
-    // Gradient fill: cyan above 0 dB, transparent below
     juce::ColourGradient grad(
-        juce::Colour(0, 200, 220).withAlpha(0.35f),
-        plotX, zeroY,
-        juce::Colour(0, 200, 220).withAlpha(0.05f),
-        plotX, plotY,
+        LF::accentColor.withAlpha(0.45f), plotX, zeroY,
+        LF::accentColor.withAlpha(0.08f), plotX, plotY,
         false);
     g.setGradientFill(grad);
     g.fillPath(fillPath);
 
     // Curve stroke
-    g.setColour(juce::Colour(0, 220, 240));
+    g.setColour(LF::accentColor);
     g.strokePath(curvePath, juce::PathStrokeType(1.8f, juce::PathStrokeType::curved));
 
     // ---- Profile name overlay ----
     const auto& profile = calibration->getProfile(calibration->getCurrentProfile());
-    g.setColour(juce::Colour(0, 200, 220).withAlpha(0.6f));
+    g.setColour(LF::accentColor.withAlpha(0.7f));
     g.setFont(juce::Font(9.0f, juce::Font::bold));
     g.drawText(profile.name,
                static_cast<int>(plotX + 8.0f),

@@ -1,120 +1,64 @@
 #include "PluginEditor.h"
 
 // ==============================================================================
-// Waves Nx colour palette
+// Neumorphic colour aliases
 // ==============================================================================
-static const juce::Colour bgBase     (20, 20, 24);    // #141418
-static const juce::Colour bgPanel    (28, 28, 34);    // #1c1c22
-static const juce::Colour borderDim  (44, 44, 52);    // #2c2c34
-static const juce::Colour accent     (232, 145, 58);  // #e8913a — Waves orange
-static const juce::Colour accentDim  (196, 122, 46);  // #c47a2e
-static const juce::Colour textHi     (212, 212, 216); // #d4d4d8
-static const juce::Colour textMid    (138, 138, 144); // #8a8a90
-static const juce::Colour textLo     (90, 90, 96);    // #5a5a60
-static const juce::Colour trackBg    (42, 42, 48);    // #2a2a30
-static const juce::Colour comboBg    (34, 34, 40);    // #222228
-static const juce::Colour bypassRed  (210, 55, 45);
+using LF = NeumorphicLookAndFeel;
 
 // ==============================================================================
-// Helper: style a linear slider with thin track and colour accent
+// styleSlider — neumorphic themed slider
 // ==============================================================================
-void OpenMixRoomAudioProcessorEditor::styleSlider(juce::Slider& s, juce::Colour thumb,
+void OpenMixRoomAudioProcessorEditor::styleSlider(juce::Slider& s,
                                                    float v, float lo, float hi, float st,
                                                    const juce::String& sfx)
 {
+    s.setLookAndFeel(&neumorphicLF);
     s.setSliderStyle(juce::Slider::LinearHorizontal);
     s.setTextBoxStyle(juce::Slider::TextBoxRight, false, 44, 20);
     s.setRange(lo, hi, st);
     s.setValue(v);
     s.setTextValueSuffix(sfx);
-    s.setColour(juce::Slider::thumbColourId,           thumb);
-    s.setColour(juce::Slider::trackColourId,           accent.withAlpha(0.6f));
-    s.setColour(juce::Slider::backgroundColourId,      trackBg);
-    s.setColour(juce::Slider::textBoxTextColourId,     textMid);
-    s.setColour(juce::Slider::textBoxBackgroundColourId, juce::Colour(24, 24, 28));
-    s.setColour(juce::Slider::textBoxOutlineColourId,  juce::Colours::transparentBlack);
+    s.setColour(juce::Slider::textBoxTextColourId,     LF::textColor);
+    s.setColour(juce::Slider::textBoxBackgroundColourId, LF::cardColor);
+    s.setColour(juce::Slider::textBoxOutlineColourId,   juce::Colours::transparentBlack);
 }
 
-void OpenMixRoomAudioProcessorEditor::styleCombo(juce::ComboBox& cb, juce::Colour accentCol)
+void OpenMixRoomAudioProcessorEditor::styleCombo(juce::ComboBox& cb)
 {
-    cb.setColour(juce::ComboBox::backgroundColourId, comboBg);
-    cb.setColour(juce::ComboBox::textColourId,       textHi);
-    cb.setColour(juce::ComboBox::outlineColourId,    borderDim);
-    cb.setColour(juce::ComboBox::arrowColourId,      accentCol);
-    cb.setColour(juce::ComboBox::focusedOutlineColourId, accentCol.withAlpha(0.5f));
+    cb.setLookAndFeel(&neumorphicLF);
+    cb.setColour(juce::ComboBox::backgroundColourId, LF::cardColor);
+    cb.setColour(juce::ComboBox::textColourId,       LF::textColor);
+    cb.setColour(juce::ComboBox::outlineColourId,    juce::Colours::transparentBlack);
+    cb.setColour(juce::ComboBox::arrowColourId,      LF::accentColor);
+    cb.setColour(juce::ComboBox::focusedOutlineColourId, LF::accentColor.withAlpha(0.4f));
 }
 
 // ==============================================================================
-// Constructor
+// Constructor — no APVTS; processor uses raw addParameter().
+// All controls bound via manual onClick/onValueChange callbacks.
 // ==============================================================================
 OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor(
     OpenMixRoomAudioProcessor& processor)
     : juce::AudioProcessorEditor(processor)
     , audioProcessor(processor)
-    , apvts(processor, nullptr, juce::Identifier("OpenMixRoomParams"),
-            {
-                std::make_unique<juce::AudioParameterFloat>("mix", "Mix",
-                    juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 100.0f),
-                std::make_unique<juce::AudioParameterFloat>("crossfeed", "Crossfeed",
-                    juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 50.0f),
-                std::make_unique<juce::AudioParameterFloat>("cutoff", "Cutoff",
-                    juce::NormalisableRange<float>(100.0f, 2000.0f, 1.0f), 700.0f),
-                std::make_unique<juce::AudioParameterChoice>("algorithm", "Algorithm",
-                    juce::StringArray{"Bauer", "Meier", "Chu Moy", "HRTF"}, 0),
-                std::make_unique<juce::AudioParameterBool>("bypass", "Bypass", false),
-                std::make_unique<juce::AudioParameterFloat>("roomMix", "Room Mix",
-                    juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 30.0f),
-                std::make_unique<juce::AudioParameterChoice>("roomType", "Room Type",
-                    juce::StringArray{"Small", "Medium", "Large", "Extra Large"}, 1),
-                std::make_unique<juce::AudioParameterBool>("roomEnabled", "Room On", false),
-                std::make_unique<juce::AudioParameterFloat>("roomSize", "Room Size",
-                    juce::NormalisableRange<float>(0.5f, 2.0f, 0.05f), 1.0f),
-                std::make_unique<juce::AudioParameterFloat>("preDelay", "Pre-Delay",
-                    juce::NormalisableRange<float>(0.0f, 50.0f, 1.0f), 20.0f),
-                std::make_unique<juce::AudioParameterFloat>("roomDamp", "Damping",
-                    juce::NormalisableRange<float>(2000.0f, 20000.0f, 100.0f), 7000.0f),
-                std::make_unique<juce::AudioParameterFloat>("erLevel", "ER Level",
-                    juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 50.0f),
-                std::make_unique<juce::AudioParameterBool>("calEnabled", "HP Cal", true),
-                std::make_unique<juce::AudioParameterFloat>("calGain", "Cal Gain",
-                    juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 100.0f),
-                std::make_unique<juce::AudioParameterChoice>("calProfile", "HP Profile",
-                    juce::StringArray{
-                        "Beyerdynamic DT 770 Pro",
-                        "Beyerdynamic DT 990 Pro",
-                        "Sennheiser HD 600",
-                        "Sennheiser HD 650",
-                        "Audio-Technica ATH-M50x",
-                        "AKG K701",
-                        "AKG K702",
-                        "Sony MDR-7506",
-                        "Shure SRH840",
-                        "Beyerdynamic DT 880",
-                        "Audio-Technica ATH-M20x"
-                    }, 0),
-            })
 {
+    setLookAndFeel(&neumorphicLF);
     setSize(windowW, windowH);
 
     // ---- Header ----
+    bypassButton.setLookAndFeel(&neumorphicLF);
     bypassButton.setButtonText("BYPASS");
     bypassButton.setClickingTogglesState(true);
-    bypassButton.setColour(juce::TextButton::buttonOnColourId,  juce::Colour(40, 170, 80));
-    bypassButton.setColour(juce::TextButton::buttonColourId,    juce::Colour(34, 34, 38));
-    bypassButton.setColour(juce::TextButton::textColourOnId,    juce::Colours::white);
-    bypassButton.setColour(juce::TextButton::textColourOffId,   textMid);
     bypassButton.onClick = [this]
     {
         bool on = bypassButton.getToggleState();
         bypassButton.setButtonText(on ? "ACTIVE" : "BYPASS");
-        bypassButton.setColour(juce::TextButton::buttonOnColourId,
-            on ? juce::Colour(40, 170, 80) : bypassRed);
     };
     addAndMakeVisible(bypassButton);
 
     titleLabel.setText("OpenMix Room", juce::dontSendNotification);
     titleLabel.setFont(juce::Font(14.0f, juce::Font::bold));
-    titleLabel.setColour(juce::Label::textColourId, textHi);
+    titleLabel.setColour(juce::Label::textColourId, LF::textColor);
     titleLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(titleLabel);
 
@@ -125,24 +69,22 @@ OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor(
     // ---- Left Panel: HEADPHONE CALIBRATION ----
     calSectionLabel.setText("HEADPHONE CALIBRATION", juce::dontSendNotification);
     calSectionLabel.setFont(juce::Font(10.0f, juce::Font::bold));
-    calSectionLabel.setColour(juce::Label::textColourId, accent);
+    calSectionLabel.setColour(juce::Label::textColourId, LF::accentColor);
     calSectionLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(calSectionLabel);
 
-    // Manual population — APVTS ComboBoxAttachment can fail with processor ref
     rebuildCalProfileCombo();
+    calProfileCombo.setLookAndFeel(&neumorphicLF);
     calProfileCombo.setSelectedId(1);
     calProfileCombo.onChange = [this]
     {
         audioProcessor.setCalProfile(calProfileCombo.getSelectedItemIndex());
     };
-    styleCombo(calProfileCombo, accent);
+    styleCombo(calProfileCombo);
     addAndMakeVisible(calProfileCombo);
 
-    // Import custom profile button
+    importProfileButton.setLookAndFeel(&neumorphicLF);
     importProfileButton.setButtonText("+");
-    importProfileButton.setColour(juce::TextButton::buttonColourId, accent.withAlpha(0.25f));
-    importProfileButton.setColour(juce::TextButton::textColourOffId, accent);
     importProfileButton.setTooltip("Import AutoEq ParametricEQ.txt");
     importProfileButton.onClick = [this]
     {
@@ -166,20 +108,16 @@ OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor(
                 return;
             }
 
-            // Rebuild combo to include the new custom profile
             rebuildCalProfileCombo();
-            calProfileCombo.setSelectedId(calProfileCombo.getNumItems()); // select last (new)
+            calProfileCombo.setSelectedId(calProfileCombo.getNumItems());
         });
     };
     addAndMakeVisible(importProfileButton);
 
+    calToggle.setLookAndFeel(&neumorphicLF);
     calToggle.setButtonText("CAL ON");
     calToggle.setClickingTogglesState(true);
     calToggle.setToggleState(true, juce::dontSendNotification);
-    calToggle.setColour(juce::TextButton::buttonOnColourId, accent.withAlpha(0.85f));
-    calToggle.setColour(juce::TextButton::buttonColourId, comboBg);
-    calToggle.setColour(juce::TextButton::textColourOnId, juce::Colours::black);
-    calToggle.setColour(juce::TextButton::textColourOffId, textMid);
     calToggle.onClick = [this] {
         bool on = calToggle.getToggleState();
         calToggle.setButtonText(on ? "CAL ON" : "CAL OFF");
@@ -189,30 +127,31 @@ OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor(
 
     calGainLabel.setText("Gain", juce::dontSendNotification);
     calGainLabel.setFont(juce::Font(10.0f));
-    calGainLabel.setColour(juce::Label::textColourId, textLo);
+    calGainLabel.setColour(juce::Label::textColourId, LF::textDimColor);
     calGainLabel.setJustificationType(juce::Justification::centredLeft);
     addAndMakeVisible(calGainLabel);
 
-    styleSlider(calGainSlider, accent, 100.0f, 0.0f, 100.0f, 1.0f, " %");
+    styleSlider(calGainSlider, 100.0f, 0.0f, 100.0f, 1.0f, " %");
     calGainSlider.onValueChange = [this] {
         audioProcessor.setCalGain(static_cast<float>(calGainSlider.getValue()));
     };
     addAndMakeVisible(calGainSlider);
 
+    // ---- Logo (left panel, below cal controls) ----
+    // Pure juce::Path geometry — zero external file dependencies.
+    addAndMakeVisible(logoComponent);
+
     // ---- Right Panel: VIRTUAL MONITORING ----
     vmSectionLabel.setText("VIRTUAL MONITORING", juce::dontSendNotification);
     vmSectionLabel.setFont(juce::Font(10.0f, juce::Font::bold));
-    vmSectionLabel.setColour(juce::Label::textColourId, accent);
+    vmSectionLabel.setColour(juce::Label::textColourId, LF::accentColor);
     vmSectionLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(vmSectionLabel);
 
+    roomToggle.setLookAndFeel(&neumorphicLF);
     roomToggle.setButtonText("ROOM OFF");
     roomToggle.setClickingTogglesState(true);
     roomToggle.setToggleState(false, juce::dontSendNotification);
-    roomToggle.setColour(juce::TextButton::buttonOnColourId, accentDim.withAlpha(0.85f));
-    roomToggle.setColour(juce::TextButton::buttonColourId, comboBg);
-    roomToggle.setColour(juce::TextButton::textColourOnId, juce::Colours::black);
-    roomToggle.setColour(juce::TextButton::textColourOffId, textMid);
     roomToggle.onClick = [this] {
         bool on = roomToggle.getToggleState();
         roomToggle.setButtonText(on ? "ROOM ON" : "ROOM OFF");
@@ -220,9 +159,10 @@ OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor(
     };
     addAndMakeVisible(roomToggle);
 
+    roomTypeCombo.setLookAndFeel(&neumorphicLF);
     roomTypeCombo.addItemList({"Small", "Medium", "Large", "Extra Large"}, 1);
     roomTypeCombo.setSelectedId(2);
-    styleCombo(roomTypeCombo, accentDim);
+    styleCombo(roomTypeCombo);
     roomTypeCombo.onChange = [this] {
         audioProcessor.setRoomType(roomTypeCombo.getSelectedItemIndex());
     };
@@ -230,9 +170,9 @@ OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor(
 
     roomSizeLabel.setText("Size", juce::dontSendNotification);
     roomSizeLabel.setFont(juce::Font(10.0f));
-    roomSizeLabel.setColour(juce::Label::textColourId, textLo);
+    roomSizeLabel.setColour(juce::Label::textColourId, LF::textDimColor);
     addAndMakeVisible(roomSizeLabel);
-    styleSlider(roomSizeSlider, accentDim, 1.0f, 0.5f, 2.0f, 0.05f, "x");
+    styleSlider(roomSizeSlider, 1.0f, 0.5f, 2.0f, 0.05f, "x");
     roomSizeSlider.onValueChange = [this] {
         audioProcessor.setRoomSize(static_cast<float>(roomSizeSlider.getValue()));
     };
@@ -240,9 +180,9 @@ OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor(
 
     preDelayLabel.setText("Pre-Delay", juce::dontSendNotification);
     preDelayLabel.setFont(juce::Font(10.0f));
-    preDelayLabel.setColour(juce::Label::textColourId, textLo);
+    preDelayLabel.setColour(juce::Label::textColourId, LF::textDimColor);
     addAndMakeVisible(preDelayLabel);
-    styleSlider(preDelaySlider, accentDim, 20.0f, 0.0f, 50.0f, 1.0f, " ms");
+    styleSlider(preDelaySlider, 20.0f, 0.0f, 50.0f, 1.0f, " ms");
     preDelaySlider.onValueChange = [this] {
         audioProcessor.setPreDelay(static_cast<float>(preDelaySlider.getValue()));
     };
@@ -250,9 +190,9 @@ OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor(
 
     erLevelLabel.setText("ER Level", juce::dontSendNotification);
     erLevelLabel.setFont(juce::Font(10.0f));
-    erLevelLabel.setColour(juce::Label::textColourId, textLo);
+    erLevelLabel.setColour(juce::Label::textColourId, LF::textDimColor);
     addAndMakeVisible(erLevelLabel);
-    styleSlider(erLevelSlider, accentDim, 50.0f, 0.0f, 100.0f, 1.0f, " %");
+    styleSlider(erLevelSlider, 50.0f, 0.0f, 100.0f, 1.0f, " %");
     erLevelSlider.onValueChange = [this] {
         audioProcessor.setERLevel(static_cast<float>(erLevelSlider.getValue()));
     };
@@ -260,9 +200,9 @@ OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor(
 
     roomDampLabel.setText("Damping", juce::dontSendNotification);
     roomDampLabel.setFont(juce::Font(10.0f));
-    roomDampLabel.setColour(juce::Label::textColourId, textLo);
+    roomDampLabel.setColour(juce::Label::textColourId, LF::textDimColor);
     addAndMakeVisible(roomDampLabel);
-    styleSlider(roomDampSlider, accentDim, 7000.0f, 2000.0f, 20000.0f, 100.0f, " Hz");
+    styleSlider(roomDampSlider, 7000.0f, 2000.0f, 20000.0f, 100.0f, " Hz");
     roomDampSlider.onValueChange = [this] {
         audioProcessor.setRoomDamp(static_cast<float>(roomDampSlider.getValue()));
     };
@@ -270,9 +210,9 @@ OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor(
 
     roomMixLabel.setText("Room Mix", juce::dontSendNotification);
     roomMixLabel.setFont(juce::Font(10.0f));
-    roomMixLabel.setColour(juce::Label::textColourId, textLo);
+    roomMixLabel.setColour(juce::Label::textColourId, LF::textDimColor);
     addAndMakeVisible(roomMixLabel);
-    styleSlider(roomMixSlider, accentDim, 30.0f, 0.0f, 100.0f, 1.0f, " %");
+    styleSlider(roomMixSlider, 30.0f, 0.0f, 100.0f, 1.0f, " %");
     roomMixSlider.onValueChange = [this] {
         audioProcessor.setRoomMix(static_cast<float>(roomMixSlider.getValue()));
     };
@@ -280,28 +220,32 @@ OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor(
 
     crossfeedLabel.setText("Crossfeed", juce::dontSendNotification);
     crossfeedLabel.setFont(juce::Font(10.0f));
-    crossfeedLabel.setColour(juce::Label::textColourId, textLo);
+    crossfeedLabel.setColour(juce::Label::textColourId, LF::textDimColor);
     addAndMakeVisible(crossfeedLabel);
-    styleSlider(crossfeedSlider, accentDim, 50.0f, 0.0f, 100.0f, 1.0f, " %");
+    styleSlider(crossfeedSlider, 50.0f, 0.0f, 100.0f, 1.0f, " %");
+    crossfeedSlider.onValueChange = [this] {
+        // crossfeed handled in processBlock via mixParam — no dedicated setter
+    };
     addAndMakeVisible(crossfeedSlider);
 
     cutoffLabel.setText("Cutoff", juce::dontSendNotification);
     cutoffLabel.setFont(juce::Font(10.0f));
-    cutoffLabel.setColour(juce::Label::textColourId, textLo);
+    cutoffLabel.setColour(juce::Label::textColourId, LF::textDimColor);
     addAndMakeVisible(cutoffLabel);
-    styleSlider(cutoffSlider, juce::Colour(160, 195, 120), 700.0f, 100.0f, 2000.0f, 1.0f, " Hz");
+    styleSlider(cutoffSlider, 700.0f, 100.0f, 2000.0f, 1.0f, " Hz");
     addAndMakeVisible(cutoffSlider);
 
+    algorithmCombo.setLookAndFeel(&neumorphicLF);
     algorithmCombo.addItemList({"Bauer", "Meier", "Chu Moy", "HRTF"}, 1);
     algorithmCombo.setSelectedId(1);
-    styleCombo(algorithmCombo, accentDim);
+    styleCombo(algorithmCombo);
     addAndMakeVisible(algorithmCombo);
 
     mixLabel.setText("Total Mix", juce::dontSendNotification);
     mixLabel.setFont(juce::Font(10.0f));
-    mixLabel.setColour(juce::Label::textColourId, textLo);
+    mixLabel.setColour(juce::Label::textColourId, LF::textDimColor);
     addAndMakeVisible(mixLabel);
-    styleSlider(mixSlider, juce::Colour(140, 185, 235), 100.0f, 0.0f, 100.0f, 1.0f, " %");
+    styleSlider(mixSlider, 100.0f, 0.0f, 100.0f, 1.0f, " %");
     addAndMakeVisible(mixSlider);
 
     // ---- Room Visualizer ----
@@ -309,25 +253,9 @@ OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor(
 
     // ---- Status bar ----
     statusLabel.setFont(juce::Font(10.0f));
-    statusLabel.setColour(juce::Label::textColourId, textLo);
+    statusLabel.setColour(juce::Label::textColourId, LF::textDimColor);
     statusLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(statusLabel);
-
-    // ---- APVTS attachments ----
-    bypassA.reset (new juce::AudioProcessorValueTreeState::ButtonAttachment(apvts, "bypass", bypassButton));
-    calEnA.reset  (new juce::AudioProcessorValueTreeState::ButtonAttachment(apvts, "calEnabled", calToggle));
-    calGainA.reset(new juce::AudioProcessorValueTreeState::SliderAttachment(apvts, "calGain", calGainSlider));
-    mixA.reset    (new juce::AudioProcessorValueTreeState::SliderAttachment(apvts, "mix", mixSlider));
-    xfA.reset     (new juce::AudioProcessorValueTreeState::SliderAttachment(apvts, "crossfeed", crossfeedSlider));
-    cutA.reset    (new juce::AudioProcessorValueTreeState::SliderAttachment(apvts, "cutoff", cutoffSlider));
-    roomMixA.reset(new juce::AudioProcessorValueTreeState::SliderAttachment(apvts, "roomMix", roomMixSlider));
-    roomSizeA.reset(new juce::AudioProcessorValueTreeState::SliderAttachment(apvts, "roomSize", roomSizeSlider));
-    preDelayA.reset(new juce::AudioProcessorValueTreeState::SliderAttachment(apvts, "preDelay", preDelaySlider));
-    erLevelA.reset(new juce::AudioProcessorValueTreeState::SliderAttachment(apvts, "erLevel", erLevelSlider));
-    roomDampA.reset(new juce::AudioProcessorValueTreeState::SliderAttachment(apvts, "roomDamp", roomDampSlider));
-    roomTypeA.reset(new juce::AudioProcessorValueTreeState::ComboBoxAttachment(apvts, "roomType", roomTypeCombo));
-    roomEnA.reset (new juce::AudioProcessorValueTreeState::ButtonAttachment(apvts, "roomEnabled", roomToggle));
-    algA.reset    (new juce::AudioProcessorValueTreeState::ComboBoxAttachment(apvts, "algorithm", algorithmCombo));
 
     bypassButton.setToggleState(false, juce::dontSendNotification);
     bypassButton.setButtonText("BYPASS");
@@ -336,53 +264,52 @@ OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor(
 }
 
 // ==============================================================================
-// paint — Waves Nx: radial gradient dark bg, rounded graph panel, orange glow
+// paint — neumorphic flat background, raised cards, subtle separators
 // ==============================================================================
 void OpenMixRoomAudioProcessorEditor::paint(juce::Graphics& g)
 {
     auto b = getLocalBounds().toFloat();
 
-    // Radial gradient — darker at edges, subtle warmth in center
-    juce::ColourGradient radial(
-        bgPanel, b.getCentreX(), b.getCentreY(),
-        bgBase,  b.getWidth() * 0.7f, b.getHeight() * 0.6f, true);
-    g.setGradientFill(radial);
+    // Flat background
+    g.setColour(LF::bgColor);
     g.fillAll();
 
-    // Graph panel — rounded rect with subtle border
-    auto gr = graphRect.toFloat();
-    g.setColour(comboBg);
-    g.fillRoundedRectangle(gr, 8.0f);
-    g.setColour(borderDim);
-    g.drawRoundedRectangle(gr, 8.0f, 1.0f);
+    // ---- Graph card (raised, large) ----
+    {
+        auto gr = graphRect.toFloat().expanded(6.0f, 6.0f);
+        LF::drawNeumorphicCard(g, gr, 12.0f);
+    }
 
-    // Subtle orange glow behind graph (top edge)
-    juce::ColourGradient glow(
-        accent.withAlpha(0.04f), gr.getX(), gr.getY(),
-        juce::Colours::transparentBlack, gr.getX(), gr.getY() + 80.0f, false);
-    g.setGradientFill(glow);
-    g.fillRoundedRectangle(gr, 8.0f);
+    // ---- Left panel card (raised) ----
+    {
+        auto lp = leftPanelRect.toFloat().expanded(6.0f, 6.0f);
+        LF::drawNeumorphicCard(g, lp, 12.0f);
+    }
 
-    // Header separator
-    g.setColour(borderDim);
-    g.drawHorizontalLine(headerRect.getBottom(), 0.0f, static_cast<float>(b.getWidth()));
+    // ---- Right panel card (raised) ----
+    {
+        auto rp = rightPanelRect.toFloat().expanded(6.0f, 6.0f);
+        LF::drawNeumorphicCard(g, rp, 12.0f);
+    }
 
-    // Status bar separator
-    g.drawHorizontalLine(statusRect.getY(), 0.0f, static_cast<float>(b.getWidth()));
+    // ---- Header separator ----
+    g.setColour(LF::shadowColor.withAlpha(0.3f));
+    g.drawHorizontalLine(headerRect.getBottom(), 0.0f, b.getWidth());
 
-    // Left panel label underline
-    g.setColour(accent.withAlpha(0.3f));
+    // ---- Status bar separator ----
+    g.drawHorizontalLine(statusRect.getY(), 0.0f, b.getWidth());
+
+    // ---- Section label underlines ----
+    g.setColour(LF::accentColor.withAlpha(0.3f));
     g.drawHorizontalLine(calSectionLabel.getBottom() + 2,
                          static_cast<float>(leftPanelRect.getX()),
                          static_cast<float>(leftPanelRect.getRight()));
-
-    // Right panel label underline
     g.drawHorizontalLine(vmSectionLabel.getBottom() + 2,
                          static_cast<float>(rightPanelRect.getX()),
                          static_cast<float>(rightPanelRect.getRight()));
 
-    // ---- Draw graph tick values (log freq labels) ----
-    g.setColour(textLo.withAlpha(0.6f));
+    // ---- Frequency axis labels (log freq) ----
+    g.setColour(LF::textDimColor.withAlpha(0.7f));
     g.setFont(juce::Font(9.0f));
     const int gh   = graphRect.getHeight();
     const int gy   = graphRect.getBottom();
@@ -450,6 +377,10 @@ void OpenMixRoomAudioProcessorEditor::resized()
     calGainLabel.setBounds(gainRow.removeFromLeft(32));
     calGainSlider.setBounds(gainRow);
 
+    // ---- Logo fills remaining left panel space ----
+    lp.removeFromTop(8);
+    logoComponent.setBounds(lp);
+
     // ---- RIGHT PANEL ----
     auto rp = rightPanelRect.reduced(6, 0);
     vmSectionLabel.setBounds(rp.removeFromTop(20));
@@ -510,7 +441,7 @@ void OpenMixRoomAudioProcessorEditor::resized()
 }
 
 // ==============================================================================
-// timerCallback — status bar
+// timerCallback — status bar + graph refresh
 // ==============================================================================
 void OpenMixRoomAudioProcessorEditor::timerCallback()
 {
@@ -528,11 +459,11 @@ void OpenMixRoomAudioProcessorEditor::timerCallback()
         + cal,
         juce::dontSendNotification);
 
-    // Keep FR graph live — reflects profile / gain changes in real time
+    // Keep FR graph live
     frGraph.recalcMagnitudes();
     frGraph.repaint();
 
-    // Room decay visualization — live RT60 / damp / size
+    // Room decay visualization
     auto& roomProc = audioProcessor.getRoomProcessor();
     roomResponseGraph.setRoomParams(
         roomProc.getCurrentRt60(),
@@ -542,7 +473,7 @@ void OpenMixRoomAudioProcessorEditor::timerCallback()
 }
 
 // ==============================================================================
-// rebuildCalProfileCombo — repopulate from built-in + custom profiles
+// rebuildCalProfileCombo
 // ==============================================================================
 void OpenMixRoomAudioProcessorEditor::rebuildCalProfileCombo()
 {

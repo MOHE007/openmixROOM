@@ -1,14 +1,9 @@
 #include "RoomResponseGraph.h"
+#include "NeumorphicLookAndFeel.h"
 
-// ==============================================================================
-// Colours — matching PluginEditor palette
-// ==============================================================================
-static const juce::Colour bgPanel   (28, 28, 34);    // #1c1c22
-static const juce::Colour borderDim (44, 44, 52);    // #2c2c34
-static const juce::Colour accent    (232, 145, 58);  // #e8913a
-static const juce::Colour accentDim (196, 122, 46);  // #c47a2e
-static const juce::Colour textLo    (90, 90, 96);    // #5a5a60
-static const juce::Colour hfColour  (100, 180, 240); // blue-ish for HF curve
+// Neumorphic palette alias
+using LF = NeumorphicLookAndFeel;
+static const juce::Colour hfColour  (100, 160, 210); // blue-ish for HF curve
 
 // ==============================================================================
 // setRoomParams
@@ -25,27 +20,24 @@ void RoomResponseGraph::setRoomParams(float rt, float damp, float sz)
 // ==============================================================================
 void RoomResponseGraph::paint(juce::Graphics& g)
 {
-    auto b = getLocalBounds().reduced(4, 6);
+    auto b = getLocalBounds().reduced(2, 4);
     if (b.isEmpty()) return;
 
-    // Background
-    g.setColour(bgPanel);
-    g.fillRoundedRectangle(b.toFloat(), static_cast<float>(cornerSize));
-    g.setColour(borderDim);
-    g.drawRoundedRectangle(b.toFloat(), static_cast<float>(cornerSize), 1.0f);
+    // Neumorphic inset card
+    LF::drawNeumorphicInset(g, b.toFloat(), static_cast<float>(cornerSize));
 
     drawGrid(g, b);
     drawDecayCurve(g, b);
 
     // Labels
-    g.setColour(textLo);
+    g.setColour(LF::textDimColor);
     g.setFont(juce::FontOptions(9.0f));
     g.drawText(juce::String::formatted("RT60 = %.1fs", rt60),
-               b.reduced(4, 2).removeFromTop(14).removeFromRight(80),
+               b.reduced(6, 4).removeFromTop(14).removeFromRight(80),
                juce::Justification::centredRight, false);
 
     g.drawText(juce::String::formatted("LP @ %.0fHz", dampLpHz),
-               juce::Rectangle<int>(b.getX() + 4, b.getY() + 2, 120, 14),
+               juce::Rectangle<int>(b.getX() + 6, b.getY() + 4, 120, 14),
                juce::Justification::centredLeft, false);
 }
 
@@ -76,12 +68,12 @@ void RoomResponseGraph::drawGrid(juce::Graphics& g, juce::Rectangle<int> area)
         float norm = (maxDb - db) / (maxDb - minDb); // 0 at top, 1 at bottom
         float y = plotY + norm * plotH;
 
-        g.setColour(textLo.withAlpha(0.2f));
+        g.setColour(LF::shadowColor.withAlpha(0.25f));
         g.drawHorizontalLine(static_cast<int>(y),
                              area.getX() + leftMargin - 4,
                              plotX + plotW + 4);
 
-        g.setColour(textLo);
+        g.setColour(LF::textDimColor);
         g.drawText(juce::String(static_cast<int>(db)),
                    juce::Rectangle<int>(area.getX(), static_cast<int>(y) - 6, leftMargin - 4, 12),
                    juce::Justification::centredRight, false);
@@ -106,10 +98,10 @@ void RoomResponseGraph::drawGrid(juce::Graphics& g, juce::Rectangle<int> area)
         float nx = t / totalMs;
         float x = plotX + nx * plotW;
 
-        g.setColour(textLo.withAlpha(0.2f));
+        g.setColour(LF::shadowColor.withAlpha(0.25f));
         g.drawVerticalLine(static_cast<int>(x), plotY, plotY + plotH);
 
-        g.setColour(textLo);
+        g.setColour(LF::textDimColor);
         juce::String label;
         if (totalMs >= 1000.0f)
             label = juce::String::formatted("%.1fs", t / 1000.0f);
@@ -174,13 +166,13 @@ void RoomResponseGraph::drawDecayCurve(juce::Graphics& g, juce::Rectangle<int> a
         fillPath.closeSubPath();
 
         juce::ColourGradient grad(
-            accent.withAlpha(0.35f), plotX, dbToY(0.0f),
-            accent.withAlpha(0.05f), plotX, dbToY(-60.0f),
+            LF::accentColor.withAlpha(0.35f), plotX, dbToY(0.0f),
+            LF::accentColor.withAlpha(0.05f), plotX, dbToY(-60.0f),
             false);
         g.setGradientFill(grad);
         g.fillPath(fillPath);
 
-        g.setColour(accent.withAlpha(0.9f));
+        g.setColour(LF::accentColor.withAlpha(0.9f));
         g.strokePath(path, juce::PathStrokeType(1.5f, juce::PathStrokeType::curved));
     }
 
