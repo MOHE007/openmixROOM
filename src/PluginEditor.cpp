@@ -65,8 +65,16 @@ OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor(
                 std::make_unique<juce::AudioParameterFloat>("roomMix", "Room Mix",
                     juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 30.0f),
                 std::make_unique<juce::AudioParameterChoice>("roomType", "Room Type",
-                    juce::StringArray{"Small", "Medium", "Large"}, 1),
+                    juce::StringArray{"Small", "Medium", "Large", "Extra Large"}, 1),
                 std::make_unique<juce::AudioParameterBool>("roomEnabled", "Room On", false),
+                std::make_unique<juce::AudioParameterFloat>("roomSize", "Room Size",
+                    juce::NormalisableRange<float>(0.5f, 2.0f, 0.05f), 1.0f),
+                std::make_unique<juce::AudioParameterFloat>("preDelay", "Pre-Delay",
+                    juce::NormalisableRange<float>(0.0f, 50.0f, 1.0f), 20.0f),
+                std::make_unique<juce::AudioParameterFloat>("roomDamp", "Damping",
+                    juce::NormalisableRange<float>(2000.0f, 20000.0f, 100.0f), 7000.0f),
+                std::make_unique<juce::AudioParameterFloat>("erLevel", "ER Level",
+                    juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 50.0f),
                 std::make_unique<juce::AudioParameterBool>("calEnabled", "HP Cal", true),
                 std::make_unique<juce::AudioParameterFloat>("calGain", "Cal Gain",
                     juce::NormalisableRange<float>(0.0f, 100.0f, 1.0f), 100.0f),
@@ -212,13 +220,53 @@ OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor(
     };
     addAndMakeVisible(roomToggle);
 
-    roomTypeCombo.addItemList({"Small", "Medium", "Large"}, 1);
+    roomTypeCombo.addItemList({"Small", "Medium", "Large", "Extra Large"}, 1);
     roomTypeCombo.setSelectedId(2);
     styleCombo(roomTypeCombo, accentDim);
     roomTypeCombo.onChange = [this] {
         audioProcessor.setRoomType(roomTypeCombo.getSelectedItemIndex());
     };
     addAndMakeVisible(roomTypeCombo);
+
+    roomSizeLabel.setText("Size", juce::dontSendNotification);
+    roomSizeLabel.setFont(juce::Font(10.0f));
+    roomSizeLabel.setColour(juce::Label::textColourId, textLo);
+    addAndMakeVisible(roomSizeLabel);
+    styleSlider(roomSizeSlider, accentDim, 1.0f, 0.5f, 2.0f, 0.05f, "x");
+    roomSizeSlider.onValueChange = [this] {
+        audioProcessor.setRoomSize(static_cast<float>(roomSizeSlider.getValue()));
+    };
+    addAndMakeVisible(roomSizeSlider);
+
+    preDelayLabel.setText("Pre-Delay", juce::dontSendNotification);
+    preDelayLabel.setFont(juce::Font(10.0f));
+    preDelayLabel.setColour(juce::Label::textColourId, textLo);
+    addAndMakeVisible(preDelayLabel);
+    styleSlider(preDelaySlider, accentDim, 20.0f, 0.0f, 50.0f, 1.0f, " ms");
+    preDelaySlider.onValueChange = [this] {
+        audioProcessor.setPreDelay(static_cast<float>(preDelaySlider.getValue()));
+    };
+    addAndMakeVisible(preDelaySlider);
+
+    erLevelLabel.setText("ER Level", juce::dontSendNotification);
+    erLevelLabel.setFont(juce::Font(10.0f));
+    erLevelLabel.setColour(juce::Label::textColourId, textLo);
+    addAndMakeVisible(erLevelLabel);
+    styleSlider(erLevelSlider, accentDim, 50.0f, 0.0f, 100.0f, 1.0f, " %");
+    erLevelSlider.onValueChange = [this] {
+        audioProcessor.setERLevel(static_cast<float>(erLevelSlider.getValue()));
+    };
+    addAndMakeVisible(erLevelSlider);
+
+    roomDampLabel.setText("Damping", juce::dontSendNotification);
+    roomDampLabel.setFont(juce::Font(10.0f));
+    roomDampLabel.setColour(juce::Label::textColourId, textLo);
+    addAndMakeVisible(roomDampLabel);
+    styleSlider(roomDampSlider, accentDim, 7000.0f, 2000.0f, 20000.0f, 100.0f, " Hz");
+    roomDampSlider.onValueChange = [this] {
+        audioProcessor.setRoomDamp(static_cast<float>(roomDampSlider.getValue()));
+    };
+    addAndMakeVisible(roomDampSlider);
 
     roomMixLabel.setText("Room Mix", juce::dontSendNotification);
     roomMixLabel.setFont(juce::Font(10.0f));
@@ -273,6 +321,10 @@ OpenMixRoomAudioProcessorEditor::OpenMixRoomAudioProcessorEditor(
     xfA.reset     (new juce::AudioProcessorValueTreeState::SliderAttachment(apvts, "crossfeed", crossfeedSlider));
     cutA.reset    (new juce::AudioProcessorValueTreeState::SliderAttachment(apvts, "cutoff", cutoffSlider));
     roomMixA.reset(new juce::AudioProcessorValueTreeState::SliderAttachment(apvts, "roomMix", roomMixSlider));
+    roomSizeA.reset(new juce::AudioProcessorValueTreeState::SliderAttachment(apvts, "roomSize", roomSizeSlider));
+    preDelayA.reset(new juce::AudioProcessorValueTreeState::SliderAttachment(apvts, "preDelay", preDelaySlider));
+    erLevelA.reset(new juce::AudioProcessorValueTreeState::SliderAttachment(apvts, "erLevel", erLevelSlider));
+    roomDampA.reset(new juce::AudioProcessorValueTreeState::SliderAttachment(apvts, "roomDamp", roomDampSlider));
     roomTypeA.reset(new juce::AudioProcessorValueTreeState::ComboBoxAttachment(apvts, "roomType", roomTypeCombo));
     roomEnA.reset (new juce::AudioProcessorValueTreeState::ButtonAttachment(apvts, "roomEnabled", roomToggle));
     algA.reset    (new juce::AudioProcessorValueTreeState::ComboBoxAttachment(apvts, "algorithm", algorithmCombo));
@@ -401,29 +453,49 @@ void OpenMixRoomAudioProcessorEditor::resized()
     // ---- RIGHT PANEL ----
     auto rp = rightPanelRect.reduced(6, 0);
     vmSectionLabel.setBounds(rp.removeFromTop(20));
-    rp.removeFromTop(8);
+    rp.removeFromTop(6);
     roomToggle.setBounds(rp.removeFromTop(24));
-    rp.removeFromTop(8);
+    rp.removeFromTop(6);
     roomTypeCombo.setBounds(rp.removeFromTop(26));
-    rp.removeFromTop(12);
+    rp.removeFromTop(4);
+
+    auto rSize = rp.removeFromTop(22);
+    roomSizeLabel.setBounds(rSize.removeFromLeft(56));
+    roomSizeSlider.setBounds(rSize);
+    rp.removeFromTop(4);
+
+    auto rPD = rp.removeFromTop(22);
+    preDelayLabel.setBounds(rPD.removeFromLeft(56));
+    preDelaySlider.setBounds(rPD);
+    rp.removeFromTop(4);
+
+    auto rER = rp.removeFromTop(22);
+    erLevelLabel.setBounds(rER.removeFromLeft(56));
+    erLevelSlider.setBounds(rER);
+    rp.removeFromTop(4);
+
+    auto rDamp = rp.removeFromTop(22);
+    roomDampLabel.setBounds(rDamp.removeFromLeft(56));
+    roomDampSlider.setBounds(rDamp);
+    rp.removeFromTop(6);
 
     auto rRoomMix = rp.removeFromTop(22);
     roomMixLabel.setBounds(rRoomMix.removeFromLeft(56));
     roomMixSlider.setBounds(rRoomMix);
-    rp.removeFromTop(8);
+    rp.removeFromTop(6);
 
     auto rXf = rp.removeFromTop(22);
     crossfeedLabel.setBounds(rXf.removeFromLeft(56));
     crossfeedSlider.setBounds(rXf);
-    rp.removeFromTop(8);
+    rp.removeFromTop(6);
 
     auto rCut = rp.removeFromTop(22);
     cutoffLabel.setBounds(rCut.removeFromLeft(56));
     cutoffSlider.setBounds(rCut);
-    rp.removeFromTop(12);
+    rp.removeFromTop(6);
 
     algorithmCombo.setBounds(rp.removeFromTop(26));
-    rp.removeFromTop(12);
+    rp.removeFromTop(6);
 
     auto rMix = rp.removeFromTop(22);
     mixLabel.setBounds(rMix.removeFromLeft(56));

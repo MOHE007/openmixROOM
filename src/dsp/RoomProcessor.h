@@ -23,27 +23,35 @@ class RoomProcessor
 public:
     enum RoomType : int
     {
-        Small  = 0,
-        Medium = 1,
-        Large  = 2,
-        Count  = 3
+        Small       = 0,
+        Medium      = 1,
+        Large       = 2,
+        ExtraLarge  = 3,
+        Count       = 4
     };
 
     RoomProcessor() = default;
     ~RoomProcessor() = default;
 
     void prepare(double sampleRate, int maxBlockSize);
-    void process(juce::AudioBuffer<float>& buffer, float roomMix, int roomType, bool enabled);
+    void process(juce::AudioBuffer<float>& buffer, float roomMix, bool enabled);
     void reset();
+
+    // Preset loader — sets all target params from RoomType
+    void loadPreset(int roomType);
+
+    // Individual param overrides (call from APVTS / DAW automation)
+    void setRoomSize(float s);
+    void setPreDelay(float ms);
+    void setDamping(float hz);
+    void setERLevel(float level);
 
     float getCurrentRt60()   const noexcept { return currentRt60; }
     float getCurrentDampLp() const noexcept { return currentDampLp; }
     float getCurrentSize()   const noexcept { return currentSize; }
+    float getCurrentERLevel() const noexcept { return currentERLevel; }
 
-private:
-    // --------------------------------------------------------------------------
-    // Preset parameters
-    // --------------------------------------------------------------------------
+    // Preset lookup — public for APVTS → DSP sync
     struct Preset
     {
         float rt60;          // decay time (seconds)
@@ -52,14 +60,15 @@ private:
         float lpfHz;         // low-pass damping cutoff (higher = brighter)
         float hpfHz;         // high-pass damping cutoff
         float diffusion;     // input allpass diffusion amount (0–1)
+        float erLevel;       // early reflections level (0–1)
     };
-
     static Preset presetFor(int type);
 
+private:
     // --------------------------------------------------------------------------
     // Algorithm
     // --------------------------------------------------------------------------
-    void updateParameters(int roomType);
+    void applyPreDelayLength();
 
     // --------------------------------------------------------------------------
     // State
@@ -70,6 +79,13 @@ private:
     // FDN: 8 delay lines with prime-numbered lengths
     static constexpr int fdnCount = 8;
     static constexpr int maxDelay = 16384;  // ~371ms @ 44.1k
+
+    // ER tap network: 8 discrete taps for early reflections
+    static constexpr int erTapCount   = 8;
+    static constexpr int erBufferSize = 4096;  // ~93ms @ 44.1k
+    float erBuffer[erBufferSize] = {};
+    int   erWritePos = 0;
+    int   erDelaySamps[erTapCount] = {};
 
     // Buffer per channel (L/R use independent FDNs for stereo decorrelation).
     // Each of the 8 taps has its own independent delay line to avoid
@@ -112,6 +128,7 @@ private:
     float targetSize   = 1.0f;
     float targetDampLp = 8000.0f;
     float targetDampHp = 200.0f;
+    float targetERLevel = 0.5f;
     int   targetPreMs  = 0;
 
     // Current smoothed values
@@ -119,9 +136,11 @@ private:
     float currentSize   = 1.0f;
     float currentDampLp = 8000.0f;
     float currentDampHp = 200.0f;
+    float currentERLevel = 0.5f;
     int   currentPreMs  = 0;
 
     void recalcDelays();
+    void recalcERDelays();
     void smoothParams();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(RoomProcessor)

@@ -68,11 +68,39 @@ OpenMixRoomAudioProcessor::OpenMixRoomAudioProcessor()
 
     // Room type
     addParameter (roomTypeParam = new juce::AudioParameterChoice (
-        "roomType", "Room", juce::StringArray { "Small", "Medium", "Large" }, 1));
+        "roomType", "Room", juce::StringArray { "Small", "Medium", "Large", "Extra Large" }, 1));
 
     // Room enable (default OFF — user must turn on manually)
     addParameter (roomEnabledParam = new juce::AudioParameterBool (
         "roomEnabled", "Room On", false));
+
+    // Room size (0.5x – 2.0x, default 1.0x = Medium preset)
+    addParameter (roomSizeParam = new juce::AudioParameterFloat (
+        "roomSize", "Room Size",
+        juce::NormalisableRange<float> (0.5f, 2.0f, 0.05f), 1.0f,
+        "x", juce::AudioProcessorParameter::genericParameter,
+        [](float v, int) { return juce::String(v, 2) + "x"; }, nullptr));
+
+    // Pre-delay (0–50ms, default 20ms = Medium preset)
+    addParameter (preDelayParam = new juce::AudioParameterFloat (
+        "preDelay", "Pre-Delay",
+        juce::NormalisableRange<float> (0.0f, 50.0f, 1.0f), 20.0f,
+        " ms", juce::AudioProcessorParameter::genericParameter,
+        [](float v, int) { return juce::String(static_cast<int>(v)) + " ms"; }, nullptr));
+
+    // Room damping LPF (2k–20kHz, default 7kHz = Medium preset)
+    addParameter (roomDampParam = new juce::AudioParameterFloat (
+        "roomDamp", "Damping",
+        juce::NormalisableRange<float> (2000.0f, 20000.0f, 100.0f), 7000.0f,
+        " Hz", juce::AudioProcessorParameter::genericParameter,
+        [](float v, int) { return juce::String(static_cast<int>(v / 1000.0f * 10) / 10.0) + " kHz"; }, nullptr));
+
+    // Early reflections level (0–100%, default 50%)
+    addParameter (erLevelParam = new juce::AudioParameterFloat (
+        "erLevel", "ER Level",
+        juce::NormalisableRange<float> (0.0f, 100.0f, 1.0f), 50.0f,
+        "%", juce::AudioProcessorParameter::genericParameter,
+        [](float v, int) { return juce::String(v, 1) + "%"; }, nullptr));
 
     // Headphone calibration profile
     juce::StringArray calProfiles;
@@ -138,6 +166,39 @@ void OpenMixRoomAudioProcessor::setRoomMix(float percent)
 void OpenMixRoomAudioProcessor::setRoomType(int index)
 {
     *roomTypeParam = index;
+
+    // Sync dependent params to preset values
+    auto p = RoomProcessor::presetFor(index);
+    *roomSizeParam = p.size;
+    *preDelayParam = p.preDelayMs;
+    *roomDampParam = p.lpfHz;
+    *erLevelParam  = p.erLevel * 100.0f;
+
+    room.loadPreset(index);
+}
+
+void OpenMixRoomAudioProcessor::setRoomSize(float s)
+{
+    *roomSizeParam = s;
+    room.setRoomSize(s);
+}
+
+void OpenMixRoomAudioProcessor::setPreDelay(float ms)
+{
+    *preDelayParam = ms;
+    room.setPreDelay(ms);
+}
+
+void OpenMixRoomAudioProcessor::setRoomDamp(float hz)
+{
+    *roomDampParam = hz;
+    room.setDamping(hz);
+}
+
+void OpenMixRoomAudioProcessor::setERLevel(float percent)
+{
+    *erLevelParam = percent;
+    room.setERLevel(percent / 100.0f);
 }
 
 juce::Result OpenMixRoomAudioProcessor::importCalProfile(const juce::String& filePath)
@@ -224,7 +285,6 @@ void OpenMixRoomAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     const float roomMixValue   = roomMixParam->get()   / 100.0f;
     const float cutoffHz       = cutoffParam->get();
     const int   algorithm      = algorithmParam->getIndex();
-    const int   roomType       = roomTypeParam->getIndex();
 
     if (mixValue < 0.005f)
         return;
@@ -248,7 +308,13 @@ void OpenMixRoomAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     // [3] Room convolution (only if enabled)
     const bool roomEnabled = roomEnabledParam->get();
     if (roomEnabled && roomMixValue > 0.005f)
-        room.process(buffer, roomMixValue, roomType, true);
+    {
+        room.setRoomSize(roomSizeParam->get());
+        room.setPreDelay(preDelayParam->get());
+        room.setDamping(roomDampParam->get());
+        room.setERLevel(erLevelParam->get() / 100.0f);
+        room.process(buffer, roomMixValue, true);
+    }
 
     // [4] Dry/wet blend
     if (mixValue < 0.995f)
@@ -300,6 +366,10 @@ void OpenMixRoomAudioProcessor::getStateInformation (juce::MemoryBlock& destData
     xml->setAttribute("roomMix",     roomMixParam->get());
     xml->setAttribute("roomType",    roomTypeParam->getIndex());
     xml->setAttribute("roomEnabled", roomEnabledParam->get());
+    xml->setAttribute("roomSize",    roomSizeParam->get());
+    xml->setAttribute("preDelay",    preDelayParam->get());
+    xml->setAttribute("roomDamp",    roomDampParam->get());
+    xml->setAttribute("erLevel",     erLevelParam->get());
     xml->setAttribute("calProfile",  calProfileParam->getIndex());
     xml->setAttribute("calEnabled",  calEnabledParam->get());
     xml->setAttribute("calGain",     calGainParam->get());
@@ -319,6 +389,10 @@ void OpenMixRoomAudioProcessor::setStateInformation (const void* data, int sizeI
         *roomMixParam   = static_cast<float>(xml->getDoubleAttribute("roomMix", 30.0));
         *roomTypeParam  = xml->getIntAttribute("roomType", 1);
         *roomEnabledParam = xml->getBoolAttribute("roomEnabled", false);
+        *roomSizeParam   = static_cast<float>(xml->getDoubleAttribute("roomSize", 1.0));
+        *preDelayParam   = static_cast<float>(xml->getDoubleAttribute("preDelay", 20.0));
+        *roomDampParam   = static_cast<float>(xml->getDoubleAttribute("roomDamp", 7000.0));
+        *erLevelParam    = static_cast<float>(xml->getDoubleAttribute("erLevel", 50.0));
         *calProfileParam= xml->getIntAttribute("calProfile", 0);
         *calEnabledParam= xml->getBoolAttribute("calEnabled", true);
         *calGainParam   = static_cast<float>(xml->getDoubleAttribute("calGain", 100.0));

@@ -4,7 +4,7 @@
 
 OpenMix Room 是一款虚拟混音监听插件，通过耳机频率响应校准、Crossfeed 串扰处理、FDN 板式混响和实时可视化，在普通耳机上还原音箱混音房的听感。支持 VST3 / AU 格式（macOS）。
 
-> **v0.1.0-beta** — FDN Room 混响模块首次发布
+> **v0.4.1** — 早期反射分离 + Size 参数瞬变咔嗒声修复
 
 ---
 
@@ -57,8 +57,8 @@ OpenMix Room 是一款虚拟混音监听插件，通过耳机频率响应校准�
 |-------|------|------|
 | 1 | 项目骨架、音频直通、基础 GUI | ✅ 完成 |
 | 2 | HRTF 加载、Crossfeed、Room IR、耳机校准 | ✅ 完成 |
-| 3 | FDN Room 混响、能量衰减可视化、参数自动化 | 🚧 开发中 |
-| 4 | 嵌套全通扩散器、早期反射分离、Size 交叉淡入淡出 | ⬜ 待开发 |
+| 3 | FDN Room 混响、能量衰减可视化、参数自动化 | ✅ 完成 |
+| 4 | 嵌套全通扩散器、早期反射分离、Size 交叉淡入淡出 | ✅ 完成 |
 | 5 | Windows 支持、头部追踪 (OSC / 摄像头) | ⬜ 待开发 |
 
 ---
@@ -121,3 +121,21 @@ openmixROOM/
 ## License
 
 待定
+
+---
+
+## 更新日志
+
+### v0.4.1 (2026-07-10)
+
+**早期反射分离 (Early Reflections)**
+
+Phase 4 将早期反射从 FDN 后期混响中独立出来，实现更真实的声场感知：
+
+- **8-tap ER 延迟网络** — 交错的立体声声像定位（5ms–67ms prime-spaced tap），每 tap -3dB/倍程自然衰减，模拟真实墙壁反弹的反射能量递减
+- **ER Level 独立控制** — 从 4 级 Schroeder 全通扩散器输入馈送，与 FDN 后期混响独立混合，支持更灵活的混响塑形
+- **Size 参数联动** — Size 参数同时缩放 ER tap 间距和 FDN 延迟线长度，保证空间感一致
+
+**Bug 修复**
+
+- **Size 参数瞬变咔嗒声** — 修复 `RoomProcessor::recalcDelays()` 中 Size 调小时 FDN writePos 越界导致的咔嗒音。延迟线长度缩小后，旧的 writePos 可能超出新 buffer 范围，导致读取垃圾数据并注入反馈环。修复方式：延迟线长度变更后 clamp writePos 并 memset 清零整个 delay line buffer

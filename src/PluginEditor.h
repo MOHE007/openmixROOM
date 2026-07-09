@@ -54,6 +54,14 @@ private:
     juce::Label    vmSectionLabel;
     juce::TextButton roomToggle;
     juce::ComboBox roomTypeCombo;
+    juce::Label    roomSizeLabel;
+    juce::Slider   roomSizeSlider;
+    juce::Label    preDelayLabel;
+    juce::Slider   preDelaySlider;
+    juce::Label    erLevelLabel;
+    juce::Slider   erLevelSlider;
+    juce::Label    roomDampLabel;
+    juce::Slider   roomDampSlider;
     juce::Label    roomMixLabel;
     juce::Slider   roomMixSlider;
     juce::Label    crossfeedLabel;
@@ -82,6 +90,10 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> xfA;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> cutA;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> roomMixA;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> roomSizeA;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> preDelayA;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> erLevelA;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> roomDampA;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> roomTypeA;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment>   roomEnA;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> algA;

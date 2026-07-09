@@ -61,6 +61,10 @@ public:
     void setRoomEnabled(bool on);
     void setRoomMix(float percent);
     void setRoomType(int index);
+    void setRoomSize(float s);
+    void setPreDelay(float ms);
+    void setRoomDamp(float hz);
+    void setERLevel(float percent);
 
     // Custom profile import
     juce::Result importCalProfile(const juce::String& filePath);
@@ -94,6 +98,10 @@ private:
     juce::AudioParameterFloat*  roomMixParam        = nullptr;
     juce::AudioParameterChoice* roomTypeParam       = nullptr;
     juce::AudioParameterBool*   roomEnabledParam    = nullptr;  // Room bypass (default off)
+    juce::AudioParameterFloat*  roomSizeParam       = nullptr;  // 0.5x–2.0x
+    juce::AudioParameterFloat*  preDelayParam       = nullptr;  // 0–50ms
+    juce::AudioParameterFloat*  roomDampParam       = nullptr;  // LPF damping 2k–20kHz
+    juce::AudioParameterFloat*  erLevelParam         = nullptr;  // Early reflections 0–100%
     juce::AudioParameterChoice* calProfileParam     = nullptr;  // Headphone model
     juce::AudioParameterBool*   calEnabledParam     = nullptr;  // Calibration on/off
     juce::AudioParameterFloat*  calGainParam        = nullptr;  // Calibration strength
