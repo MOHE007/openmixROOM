@@ -4,14 +4,17 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 
 // ==============================================================================
-// RoomProcessor — algorithmic room simulation via synthetic IR convolution.
+// RoomProcessor — algorithmic room simulation via Image Source Method (ISM).
 //
-// • Early reflections: discrete delayed + filtered taps (6–12 taps)
-// • Late reverberation: exponentially decaying filtered noise tail
-// • Three room presets: Small (~0.4s), Medium (~0.9s), Large (~1.8s)
-// • Stereo decorrelation via independent L/R IR generation
+// Replaces hand-tuned early reflection tap tables with physically grounded
+// image-source ray tracing. Computes up to 2nd-order reflections across six
+// surfaces (floor/ceiling + four walls) with frequency-dependent absorption.
 //
-// Convolution uses juce::dsp::Convolution (partitioned overlap-save).
+// • ISM generates reflection delay/amplitude/direction from room geometry
+// • Late reverberation: frequency-dependent decaying filtered noise (FDN tail)
+// • Three presets: Small (3×4×2.5m), Medium (5×7×3m), Large (8×12×4m)
+// • Channel decorrelation: slightly offset virtual receiver positions per ear
+// • Convolution via juce::dsp::Convolution (partitioned overlap-save)
 // ==============================================================================
 class RoomProcessor
 {
@@ -33,40 +36,65 @@ public:
 
 private:
     // --------------------------------------------------------------------------
-    // Generate a synthetic stereo room IR for the given room type.
-    // IR length = sampleRate * RT60 (seconds), stored as stereo.
+    // Room geometry definition (meters)
     // --------------------------------------------------------------------------
-    void generateSyntheticIR(int roomType);
-
-    // --------------------------------------------------------------------------
-    // Early reflection tap: delay in ms, relative gain, LP cutoff Hz
-    // --------------------------------------------------------------------------
-    struct ERTap
+    struct RoomGeometry
     {
-        float delayMs;
-        float gain;
-        float cutoffHz; // post-tap low-pass cutoff
+        float width, depth, height;              // in meters
+        float wallAbsorption[6];                  // octave-band avg for 6 surfaces (0..1)
+        float listenerX, listenerY, listenerZ;    // listener position
+        float speakerLx, speakerRx;               // virtual speaker X positions (±30°)
+
+        // Absorption coefficient at a specific frequency via 3-band interpolation
+        // (low < 500Hz, mid 500–4kHz, high > 4kHz)
+        float absorptionAt(float freqHz) const;
     };
 
-    // Generate mono early reflection IR into a buffer at sampleRate
-    static void bakeER(const std::vector<ERTap>& taps,
-                       float* dest, int irLength, double sr);
+    // --------------------------------------------------------------------------
+    // Image source result: delay, gain, and arrival direction for stereo panning
+    // --------------------------------------------------------------------------
+    struct ImageSource
+    {
+        float delaySec;     // arrival delay in seconds
+        float amplitude;    // amplitude after wall reflections
+        float azimuth;      // horizontal arrival angle (radians, 0=front)
+        int   order;        // reflection order
+    };
 
-    // Generate exponentially decaying filtered noise tail
-    static void bakeTail(float* dest, int startSample, int irLength,
-                         double sr, float rt60, float hfDamping);
+    // --------------------------------------------------------------------------
+    // Generate synthetic stereo room IR using Image Source Method.
+    // --------------------------------------------------------------------------
+    void generateISM_IR(int roomType);
+
+    // Compute all image sources for a room geometry (up to maxOrder)
+    static void traceImageSources(const RoomGeometry& room,
+                                   std::vector<ImageSource>& outSources,
+                                   int maxOrder);
+
+    // Bake image sources into an IR buffer (per-ear, uses azimuth for ILD/ITD)
+    static void bakeImageSources(const std::vector<ImageSource>& sources,
+                                  float earOffset, float* dest, int irLength,
+                                  double sr);
+
+    // Generate frequency-dependent filtered noise tail
+    static void bakeFDNTail(float* dest, int startSample, int irLength,
+                             double sr, float rt60, float hfRatio);
+
+    // --------------------------------------------------------------------------
+    // Room presets
+    // --------------------------------------------------------------------------
+    static RoomGeometry roomPreset(int type);
 
     // --------------------------------------------------------------------------
     // state
     // --------------------------------------------------------------------------
     double sampleRate   = 44100.0;
     int    maxBlockSize = 512;
-    int    currentRoom  = -1; // force regenerate on first use
+    int    currentRoom  = -1;
 
     juce::dsp::Convolution convL;
     juce::dsp::Convolution convR;
 
-    // Pre-allocated mono scratch buffers for convolution
     juce::AudioBuffer<float> wetBufferL;
     juce::AudioBuffer<float> wetBufferR;
 

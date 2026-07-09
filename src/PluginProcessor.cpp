@@ -88,10 +88,12 @@ OpenMixRoomAudioProcessor::OpenMixRoomAudioProcessor()
         "%", juce::AudioProcessorParameter::genericParameter,
         [](float v, int) { return juce::String(v, 1) + "%"; }, nullptr));
 
-    // Register listeners so DSP state stays in sync when parameters change
-    // (critical: APVTS may update its own copy; listener bridges the gap)
-    calProfileParam->addListener(this);
-    calEnabledParam->addListener(this);
+    // Register parameter listener to bridge APVTS ↔ DSP
+    calListener = std::make_unique<CalListener>(headphoneCal);
+    calListener->profileParam = calProfileParam;
+    calListener->enabledParam = calEnabledParam;
+    calProfileParam->addListener(calListener.get());
+    calEnabledParam->addListener(calListener.get());
 }
 
 // ==============================================================================
@@ -205,6 +207,14 @@ void OpenMixRoomAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     for (auto i = numIn; i < numOut; ++i)
         buffer.clear(i, 0, buffer.getNumSamples());
+
+    // ---- [5] Soft-clip final output (prevents digital clipping in chain cascade) ----
+    for (int ch = 0; ch < numOut; ++ch)
+    {
+        auto* dst = buffer.getWritePointer(ch);
+        for (int i = 0; i < buffer.getNumSamples(); ++i)
+            dst[i] = std::tanh(dst[i]);
+    }
 }
 
 // ==============================================================================
@@ -250,17 +260,6 @@ void OpenMixRoomAudioProcessor::setStateInformation (const void* data, int sizeI
         *calEnabledParam= xml->getBoolAttribute("calEnabled", true);
         *calGainParam   = static_cast<float>(xml->getDoubleAttribute("calGain", 100.0));
     }
-}
-
-// ==============================================================================
-// parameterValueChanged — keep DSP state in sync when APVTS or host updates params
-// ==============================================================================
-void OpenMixRoomAudioProcessor::parameterValueChanged(int parameterIndex, float /*newValue*/)
-{
-    if (parameterIndex == calProfileParam->getParameterIndex())
-        headphoneCal.setProfile(calProfileParam->getIndex());
-    else if (parameterIndex == calEnabledParam->getParameterIndex())
-        headphoneCal.setEnabled(calEnabledParam->get());
 }
 
 // ==============================================================================

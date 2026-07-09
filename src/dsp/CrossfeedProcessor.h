@@ -3,19 +3,24 @@
 #include <vector>
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <juce_dsp/juce_dsp.h>
 #include "SofaLoader.h"
 
 // ==============================================================================
-// CrossfeedProcessor — headphone crossfeed simulation for virtual speaker monitoring.
+// CrossfeedProcessor — headphone crossfeed simulation for virtual speaker
+// monitoring.  Replicates the acoustic crosstalk that occurs when listening
+// to real speakers: each ear hears both the ipsilateral (same-side) and
+// contralateral (opposite-side) speaker, with frequency-dependent attenuation
+// and interaural time difference (ITD).
 //
 // Algorithm modes (selectable):
-//   • Bauer   — simple low-pass + attenuated cross-mix (fastest)
-//   • Meier   — low-pass with frequency-dependent crossfeed (natural roll-off)
-//   • Chu Moy — additional phase manipulation for improved imaging
-//   • HRTF    — full HRTF-based binaural rendering via libmysofa
+//   • Bauer   — 2nd-order LP crossfeed + interaural delay (natural imaging)
+//   • Meier   — frequency-selective separation: bass mono, treble stereo
+//   • Chu Moy — dual-filter cascade + explicit ITD ring-buffer delay
+//   • HRTF    — full binaural convolution via SOFA HRIRs (FFT-convolution)
 //
 // Parameters:
-//   amount     — crossfeed intensity (0.0 = none, 1.0 = full)
+//   amount     — crossfeed intensity (0.0 = bypass, 1.0 = full)
 //   cutoffHz   — low-pass cutoff for crossfeed path (100–2000 Hz)
 //   algorithm   — 0 = Bauer, 1 = Meier, 2 = Chu Moy, 3 = HRTF
 // ==============================================================================
@@ -23,108 +28,69 @@ class CrossfeedProcessor
 {
 public:
     CrossfeedProcessor() = default;
+    ~CrossfeedProcessor() = default;
 
-    // --------------------------------------------------------------------------
-    // Initialise at given sample rate and max block size.
-    // --------------------------------------------------------------------------
     void prepare(double sampleRate, int maxBlockSize);
-
-    // --------------------------------------------------------------------------
-    // Process a stereo buffer in place.
-    // dryBuffer is the unprocessed buffer (used for dry/wet mixing).
-    // --------------------------------------------------------------------------
     void process(juce::AudioBuffer<float>& buffer,
                  const juce::AudioBuffer<float>& dryBuffer,
                  float amount, float cutoffHz, int algorithm);
-
-    // --------------------------------------------------------------------------
-    // Set the SOFA loader for HRTF mode. Pass nullptr to disable HRTF.
-    // --------------------------------------------------------------------------
     void setSofaLoader(const SofaLoader* sofa) { sofaLoader = sofa; }
-
-    // --------------------------------------------------------------------------
-    // Update listener head orientation (for HRTF mode).
-    // azimuthDeg: 0 = front, +90 = right, –90 = left
-    // elevationDeg: 0 = horizon, + = up
-    // --------------------------------------------------------------------------
     void setHeadOrientation(double azimuthDeg, double elevationDeg)
     {
         headAzimuth = azimuthDeg;
         headElevation = elevationDeg;
     }
-
     void reset();
 
 private:
-    // Bauer / Meier / Chu Moy crossfeed (no HRTF)
-    void processBauer(float* L, float* R, int numSamples, float amount, float cutoffHz);
-    void processMeier(float* L, float* R, int numSamples, float amount, float cutoffHz);
-    void processChuMoy(float* L, float* R, int numSamples, float amount, float cutoffHz);
+    void processBauer  (float* L, float* R, int numSamples, float amount, float cutoffHz);
+    void processMeier  (float* L, float* R, int numSamples, float amount, float cutoffHz);
+    void processChuMoy (float* L, float* R, int numSamples, float amount, float cutoffHz);
+    void processHRTF   (juce::AudioBuffer<float>& buffer, const juce::AudioBuffer<float>& dry,
+                        int numSamples, float amount);
 
-    // HRTF-based rendering
-    void processHRTF(float* L, float* R, int numSamples, float amount);
-
-    // Smooth parameter update
     void updateLowPass(float cutoffHz);
     void updateAmount(float amount);
 
-    // State
-    double   sampleRate = 44100.0;
+    // --- config ---
+    double   sampleRate   = 44100.0;
     int      maxBlockSize = 512;
 
-    // 1st-order Butterworth LP filter state (per-channel crossfeed path)
-    struct LPState { float b0 = 0.0f, b1 = 0.0f, a1 = 0.0f, zL = 0.0f, zR = 0.0f; };
-    LPState lp;
+    // --- 2nd-order Butterworth LP for crossfeed path ---
+    // biquad coefficients + per-channel state
+    struct LP2
+    {
+        float b0 = 0, b1 = 0, b2 = 0;
+        float a1 = 0, a2 = 0;
+        float z1L = 0, z2L = 0;
+        float z1R = 0, z2R = 0;
+    };
+    LP2 lp;
 
-    // Smoothed parameters
+    // --- Interaural delay ring buffer (shared by Bauer / Chu Moy) ---
+    // ITD ≈ 0.3 ms at 30° speaker angle → ~13 samples @ 44.1k
+    static constexpr int maxDelaySamples = 64;
+    float delayRing[maxDelaySamples] = {};
+    int   delayWrite = 0;
+    int   delayLen   = 13;            // recalculated in prepare()
+
+    // --- Smoothed parameters ---
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothedAmount;
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> smoothedCutoff;
     float currentCutoff = 700.0f;
     float currentAmount = 0.0f;
 
-    // --------------------------------------------------------------------------
-    // HRTF: pre-load HRIRs at ±30° for Phase 2 virtual speaker rendering.
-    // Returns true if all 4 HRIRs were loaded successfully.
-    // --------------------------------------------------------------------------
-    bool loadHRIRs();
-
-    // --------------------------------------------------------------------------
-    // Simple time-domain FIR convolver for HRTF rendering.
-    // --------------------------------------------------------------------------
-    struct FIR
-    {
-        std::vector<float> coeffs;
-        std::vector<float> delayLine;
-        int writePos = 0;
-
-        void reset()
-        {
-            std::fill(delayLine.begin(), delayLine.end(), 0.0f);
-            writePos = 0;
-        }
-
-        float process(float input)
-        {
-            delayLine[writePos] = input;
-            float sum = 0.0f;
-            int pos = writePos;
-            for (size_t i = 0; i < coeffs.size(); ++i)
-            {
-                sum += coeffs[i] * delayLine[pos];
-                if (--pos < 0) pos = static_cast<int>(delayLine.size()) - 1;
-            }
-            if (++writePos >= static_cast<int>(delayLine.size())) writePos = 0;
-            return sum;
-        }
-    };
-
-    // HRTF state
+    // --- HRTF state ---
     const SofaLoader* sofaLoader = nullptr;
-    double headAzimuth = 0.0;
+    double headAzimuth   = 0.0;
     double headElevation = 0.0;
+    bool   hrtfReady = false;
 
-    bool hrtfReady = false;
-    FIR hrirLL, hrirLR, hrirRL, hrirRR;  // L-ear/R-ear × L-src/R-src
+    // FFT convolution — partitioned overlap-save, much faster than time-domain FIR
+    juce::dsp::Convolution hrirLL, hrirLR, hrirRL, hrirRR;
+    juce::dsp::ProcessSpec convSpec;
+
+    bool loadHRIRs();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (CrossfeedProcessor)
 };

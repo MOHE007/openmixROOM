@@ -14,8 +14,7 @@
 //
 // Phase 4: Headphone Lab-inspired UI + headphone frequency response calibration.
 // ==============================================================================
-class OpenMixRoomAudioProcessor : public juce::AudioProcessor,
-                                       private juce::AudioProcessorParameter::Listener
+class OpenMixRoomAudioProcessor : public juce::AudioProcessor
 {
 public:
     OpenMixRoomAudioProcessor();
@@ -54,9 +53,25 @@ public:
     const HeadphoneCalibration& getHeadphoneCal() const noexcept { return headphoneCal; }
 
 private:
-    // AudioProcessorParameter::Listener — syncs DSP state on parameter changes
-    void parameterValueChanged(int parameterIndex, float newValue) override;
-    void parameterGestureChanged(int parameterIndex, bool gestureIsStarting) override {}
+    // Internal parameter listener — bridges APVTS → DSP without multiple inheritance
+    struct CalListener final : juce::AudioProcessorParameter::Listener
+    {
+        explicit CalListener(HeadphoneCalibration& hc) : cal(hc) {}
+        void parameterValueChanged(int idx, float) override
+        {
+            if (profileParam && idx == profileParam->getParameterIndex())
+                cal.setProfile(profileParam->getIndex());
+            else if (enabledParam && idx == enabledParam->getParameterIndex())
+                cal.setEnabled(enabledParam->get());
+        }
+        void parameterGestureChanged(int, bool) override {}
+
+        HeadphoneCalibration& cal;
+        juce::AudioParameterChoice* profileParam = nullptr;
+        juce::AudioParameterBool*   enabledParam = nullptr;
+    };
+    std::unique_ptr<CalListener> calListener;
+
     // Parameters
     juce::AudioParameterFloat*  mixParam           = nullptr;
     juce::AudioParameterFloat*  crossfeedParam     = nullptr;
