@@ -118,6 +118,24 @@ openmixROOM/
 
 ---
 
+## Support & Donate
+
+买插件太贵？折腾才是初学者学习最快的方式。
+
+OpenMixRoom 基于 [AutoEq](https://github.com/jaakkopasanen/AutoEq) 海量频响曲线，做成可扩展的虚拟混音监听框架插件：内置 11 款耳机校准 EQ、Crossfeed、FDN 房混响、实时可视化，支持自定义导入任意耳机频响数据。
+
+框架层完全开源（MIT License），欢迎二次开发：改 UI、加模块。更多功能演示，欢迎到 [GitHub 仓库](https://github.com/MOHE007/openmixROOM) 逛逛。
+
+如果这个插件帮到了你，欢迎请作者喝杯咖啡：
+
+| 微信 | 支付宝 |
+|------|--------|
+| ![微信收款码](assets/donate/wechat-qr.jpg) | ![支付宝收款码](assets/donate/alipay-qr.jpg) |
+
+国内也支持通过爱发电赞助：[爱发电主页](https://afdian.com/a/openmixroom)
+
+---
+
 ## License
 
 待定
