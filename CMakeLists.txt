@@ -73,6 +73,11 @@ target_compile_definitions("OpenMixRoom" PRIVATE
 )
 
 # -------------------------------------------------------------------
+# DSP regression tests
+# -------------------------------------------------------------------
+add_subdirectory(tests)
+
+# -------------------------------------------------------------------
 # Copy SVG logo into plugin bundle Resources (VST3 + AU)
 # -------------------------------------------------------------------
 add_custom_command(TARGET "OpenMixRoom_VST3" POST_BUILD
